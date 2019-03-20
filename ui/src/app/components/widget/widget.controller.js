@@ -1,5 +1,5 @@
 /*
- * Copyright © 2016-2017 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,8 +21,8 @@ import Subscription from '../../api/subscription';
 
 /*@ngInject*/
 export default function WidgetController($scope, $state, $timeout, $window, $element, $q, $log, $injector, $filter, $compile, tbRaf, types, utils, timeService,
-                                         datasourceService, alarmService, entityService, deviceService, visibleRect, isEdit, isMobile, stDiff, dashboardTimewindow,
-                                         dashboardTimewindowApi, widget, aliasController, stateController, widgetInfo, widgetType) {
+                                         datasourceService, alarmService, entityService, dashboardService, deviceService, visibleRect, isEdit, isMobile, dashboardTimewindow,
+                                         dashboardTimewindowApi, dashboard, widget, aliasController, stateController, widgetInfo, widgetType) {
 
     var vm = this;
 
@@ -67,6 +67,7 @@ export default function WidgetController($scope, $state, $timeout, $window, $ele
         hideTitlePanel: false,
         isEdit: isEdit,
         isMobile: isMobile,
+        dashboard: dashboard,
         widgetConfig: widget.config,
         settings: widget.config.settings,
         units: widget.config.units || '',
@@ -123,7 +124,8 @@ export default function WidgetController($scope, $state, $timeout, $window, $ele
             getActionDescriptors: getActionDescriptors,
             handleWidgetAction: handleWidgetAction
         },
-        stateController: stateController
+        stateController: stateController,
+        aliasController: aliasController
     };
 
     widgetContext.customHeaderActions = [];
@@ -136,7 +138,7 @@ export default function WidgetController($scope, $state, $timeout, $window, $ele
         headerAction.icon = descriptor.icon;
         headerAction.descriptor = descriptor;
         headerAction.onAction = function($event) {
-            var entityInfo = getFirstEntityInfo();
+            var entityInfo = getActiveEntityInfo();
             var entityId = entityInfo ? entityInfo.entityId : null;
             var entityName = entityInfo ? entityInfo.entityName : null;
             handleWidgetAction($event, this.descriptor, entityId, entityName);
@@ -158,7 +160,7 @@ export default function WidgetController($scope, $state, $timeout, $window, $ele
         widgetUtils: widgetContext.utils,
         dashboardTimewindowApi: dashboardTimewindowApi,
         types: types,
-        stDiff: stDiff,
+        getStDiff: dashboardService.getServerTimeDiff,
         aliasController: aliasController
     };
 
@@ -338,7 +340,8 @@ export default function WidgetController($scope, $state, $timeout, $window, $ele
         var deferred = $q.defer();
         if (widget.type !== types.widgetType.rpc.value && widget.type !== types.widgetType.static.value) {
             options = {
-                type: widget.type
+                type: widget.type,
+                stateData: vm.typeParameters.stateData
             }
             if (widget.type == types.widgetType.alarm.value) {
                 options.alarmSource = angular.copy(widget.config.alarmSource);
@@ -441,7 +444,7 @@ export default function WidgetController($scope, $state, $timeout, $window, $ele
         }
     }
 
-    function handleWidgetAction($event, descriptor, entityId, entityName) {
+    function handleWidgetAction($event, descriptor, entityId, entityName, additionalParams) {
         var type = descriptor.type;
         var targetEntityParamName = descriptor.stateEntityParamName;
         var targetEntityId;
@@ -476,14 +479,21 @@ export default function WidgetController($scope, $state, $timeout, $window, $ele
                     dashboardId: targetDashboardId,
                     state: utils.objToBase64([ stateObject ])
                 }
-                $state.go('home.dashboards.dashboard', stateParams);
+                if ($state.current.name === 'dashboard') {
+                    $state.go('dashboard', stateParams);
+                } else {
+                    $state.go('home.dashboards.dashboard', stateParams);
+                }
                 break;
             case types.widgetActionTypes.custom.value:
                 var customFunction = descriptor.customFunction;
                 if (angular.isDefined(customFunction) && customFunction.length > 0) {
                     try {
-                        var customActionFunction = new Function('$event', 'widgetContext', 'entityId', 'entityName', customFunction);
-                        customActionFunction($event, widgetContext, entityId, entityName);
+                        if (!additionalParams) {
+                            additionalParams = {};
+                        }
+                        var customActionFunction = new Function('$event', 'widgetContext', 'entityId', 'entityName', 'additionalParams', customFunction);
+                        customActionFunction($event, widgetContext, entityId, entityName, additionalParams);
                     } catch (e) {
                         //
                     }
@@ -492,13 +502,15 @@ export default function WidgetController($scope, $state, $timeout, $window, $ele
         }
     }
 
-    function getFirstEntityInfo() {
-        var entityInfo;
-        for (var id in widgetContext.subscriptions) {
-            var subscription = widgetContext.subscriptions[id];
-            entityInfo = subscription.getFirstEntityInfo();
-            if (entityInfo) {
-                break;
+    function getActiveEntityInfo() {
+        var entityInfo = widgetContext.activeEntityInfo;
+        if (!entityInfo) {
+            for (var id in widgetContext.subscriptions) {
+                var subscription = widgetContext.subscriptions[id];
+                entityInfo = subscription.getFirstEntityInfo();
+                if (entityInfo) {
+                    break;
+                }
             }
         }
         return entityInfo;
@@ -544,16 +556,16 @@ export default function WidgetController($scope, $state, $timeout, $window, $ele
             var legendStyle;
             switch($scope.legendConfig.position) {
                 case types.position.top.value:
-                    legendStyle = 'padding-bottom: 8px;';
+                    legendStyle = 'padding-bottom: 8px; max-height: 50%; overflow-y: auto;';
                     break;
                 case types.position.bottom.value:
-                    legendStyle = 'padding-top: 8px;';
+                    legendStyle = 'padding-top: 8px; max-height: 50%; overflow-y: auto;';
                     break;
                 case types.position.left.value:
-                    legendStyle = 'padding-right: 0px;';
+                    legendStyle = 'padding-right: 0px; max-width: 50%; overflow-y: auto;';
                     break;
                 case types.position.right.value:
-                    legendStyle = 'padding-left: 0px;';
+                    legendStyle = 'padding-left: 0px; max-width: 50%; overflow-y: auto;';
                     break;
             }
 

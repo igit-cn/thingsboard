@@ -1,5 +1,5 @@
 /*
- * Copyright © 2016-2017 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -68,7 +68,7 @@ export default function DashboardController(types, utils, dashboardUtils, widget
     Object.defineProperty(vm, 'toolbarOpened', {
         get: function() {
             return !vm.widgetEditMode &&
-                (toolbarAlwaysOpen() || $scope.forceFullscreen || vm.isToolbarOpened || vm.isEdit || vm.showRightLayoutSwitch()); },
+                (toolbarAlwaysOpen() || vm.isToolbarOpened || vm.isEdit || vm.showRightLayoutSwitch()); },
         set: function() { }
     });
 
@@ -114,7 +114,7 @@ export default function DashboardController(types, utils, dashboardUtils, widget
     }
 
     vm.showCloseToolbar = function() {
-        return !vm.toolbarAlwaysOpen() && !$scope.forceFullscreen && !vm.isEdit && !vm.showRightLayoutSwitch();
+        return !vm.toolbarAlwaysOpen() && !vm.isEdit && !vm.showRightLayoutSwitch();
     }
 
     vm.toolbarAlwaysOpen = toolbarAlwaysOpen;
@@ -170,7 +170,6 @@ export default function DashboardController(types, utils, dashboardUtils, widget
         }
     }
 
-    vm.getServerTimeDiff = getServerTimeDiff;
     vm.addWidget = addWidget;
     vm.addWidgetFromType = addWidgetFromType;
     vm.exportDashboard = exportDashboard;
@@ -197,6 +196,7 @@ export default function DashboardController(types, utils, dashboardUtils, widget
     vm.displayDashboardTimewindow = displayDashboardTimewindow;
     vm.displayDashboardsSelect = displayDashboardsSelect;
     vm.displayEntitiesSelect = displayEntitiesSelect;
+    vm.hideFullscreenButton = hideFullscreenButton;
 
     vm.widgetsBundle;
 
@@ -259,9 +259,17 @@ export default function DashboardController(types, utils, dashboardUtils, widget
                     dashboardId: vm.currentDashboardId
                 });
             } else {
-                $state.go('home.dashboards.dashboard', {dashboardId: vm.currentDashboardId});
+                if ($state.current.name === 'dashboard') {
+                    $state.go('dashboard', {dashboardId: vm.currentDashboardId});
+                } else {
+                    $state.go('home.dashboards.dashboard', {dashboardId: vm.currentDashboardId});
+                }
             }
         }
+    });
+
+    $scope.$on("$destroy", function () {
+        vm.dashboardCtx.stateController.cleanupPreservedStates();
     });
 
     loadDashboard();
@@ -328,10 +336,6 @@ export default function DashboardController(types, utils, dashboardUtils, widget
                 }
             );
         }
-    }
-
-    function getServerTimeDiff() {
-        return dashboardService.getServerTimeDiff();
     }
 
     function loadDashboard() {
@@ -459,7 +463,7 @@ export default function DashboardController(types, utils, dashboardUtils, widget
                 }
             },
             parent: angular.element($document[0].body),
-            skipHide: true,
+            multiple: true,
             fullscreen: true,
             targetEvent: $event
         }).then(function (entityAliases) {
@@ -484,7 +488,7 @@ export default function DashboardController(types, utils, dashboardUtils, widget
                 gridSettings: gridSettings
             },
             parent: angular.element($document[0].body),
-            skipHide: true,
+            multiple: true,
             fullscreen: true,
             targetEvent: $event
         }).then(function (data) {
@@ -506,7 +510,7 @@ export default function DashboardController(types, utils, dashboardUtils, widget
                 layouts: angular.copy(vm.dashboard.configuration.states[vm.dashboardCtx.state].layouts)
             },
             parent: angular.element($document[0].body),
-            skipHide: true,
+            multiple: true,
             fullscreen: true,
             targetEvent: $event
         }).then(function (layouts) {
@@ -527,7 +531,7 @@ export default function DashboardController(types, utils, dashboardUtils, widget
                 states: states
             },
             parent: angular.element($document[0].body),
-            skipHide: true,
+            multiple: true,
             fullscreen: true,
             targetEvent: $event
         }).then(function (states) {
@@ -806,6 +810,10 @@ export default function DashboardController(types, utils, dashboardUtils, widget
         }
     }
 
+    function hideFullscreenButton() {
+        return vm.widgetEditMode || vm.iframeMode || $rootScope.forceFullscreen || $state.current.name === 'dashboard';
+    }
+
     function onRevertWidgetEdit(widgetForm) {
         if (widgetForm.$dirty) {
             widgetForm.$setPristine();
@@ -865,7 +873,7 @@ export default function DashboardController(types, utils, dashboardUtils, widget
                 templateUrl: selectTargetLayoutTemplate,
                 parent: angular.element($document[0].body),
                 fullscreen: true,
-                skipHide: true,
+                multiple: true,
                 targetEvent: $event
             }).then(
                 function success(layoutId) {
@@ -933,7 +941,7 @@ export default function DashboardController(types, utils, dashboardUtils, widget
                         },
                         parent: angular.element($document[0].body),
                         fullscreen: true,
-                        skipHide: true,
+                        multiple: true,
                         targetEvent: event,
                         onComplete: function () {
                             var w = angular.element($window);
@@ -993,8 +1001,8 @@ export default function DashboardController(types, utils, dashboardUtils, widget
     function setEditMode(isEdit, revert) {
         vm.isEdit = isEdit;
         if (vm.isEdit) {
+            vm.dashboardCtx.stateController.preserveState();
             vm.prevDashboard = angular.copy(vm.dashboard);
-            vm.prevDashboardState = vm.dashboardCtx.state;
         } else {
             if (vm.widgetEditMode) {
                 if (revert) {
@@ -1006,7 +1014,6 @@ export default function DashboardController(types, utils, dashboardUtils, widget
                     vm.dashboard = vm.prevDashboard;
                     vm.dashboardConfiguration = vm.dashboard.configuration;
                     vm.dashboardCtx.dashboardTimewindow = vm.dashboardConfiguration.timewindow;
-                    openDashboardState(vm.prevDashboardState);
                     entityAliasesUpdated();
                 } else {
                     vm.dashboard.configuration.timewindow = vm.dashboardCtx.dashboardTimewindow;

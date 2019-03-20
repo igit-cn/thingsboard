@@ -1,5 +1,5 @@
 /*
- * Copyright © 2016-2017 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -63,28 +63,40 @@ class ThingsboardSchemaForm extends React.Component {
 
         this.onChange = this.onChange.bind(this);
         this.onColorClick = this.onColorClick.bind(this);
+        this.onToggleFullscreen = this.onToggleFullscreen.bind(this);
+        this.hasConditions = false;
     }
 
     onChange(key, val) {
         //console.log('SchemaForm.onChange', key, val);
         this.props.onModelChange(key, val);
+        if (this.hasConditions) {
+            this.forceUpdate();
+        }
     }
 
     onColorClick(event, key, val) {
         this.props.onColorClick(event, key, val);
     }
 
-    builder(form, model, index, onChange, onColorClick, mapper) {
+    onToggleFullscreen() {
+        this.props.onToggleFullscreen();
+    }
+
+    builder(form, model, index, onChange, onColorClick, onToggleFullscreen, mapper) {
         var type = form.type;
         let Field = this.mapper[type];
         if(!Field) {
             console.log('Invalid field: \"' + form.key[0] + '\"!');
             return null;
         }
-        if(form.condition && eval(form.condition) === false) {
-            return null;
+        if(form.condition) {
+            this.hasConditions = true;
+            if (eval(form.condition) === false) {
+                return null;
+            }
         }
-        return <Field model={model} form={form} key={index} onChange={onChange} onColorClick={onColorClick} mapper={mapper} builder={this.builder}/>
+        return <Field model={model} form={form} key={index} onChange={onChange} onColorClick={onColorClick} onToggleFullscreen={onToggleFullscreen} mapper={mapper} builder={this.builder}/>
     }
 
     render() {
@@ -94,11 +106,16 @@ class ThingsboardSchemaForm extends React.Component {
             mapper = _.merge(this.mapper, this.props.mapper);
         }
         let forms = merged.map(function(form, index) {
-            return this.builder(form, this.props.model, index, this.onChange, this.onColorClick, mapper);
+            return this.builder(form, this.props.model, index, this.onChange, this.onColorClick, this.onToggleFullscreen, mapper);
         }.bind(this));
 
+        let formClass = 'SchemaForm';
+        if (this.props.isFullscreen) {
+            formClass += ' SchemaFormFullscreen';
+        }
+
         return (
-            <div style={{width: '100%'}} className='SchemaForm'>{forms}</div>
+            <div style={{width: '100%'}} className={formClass}>{forms}</div>
         );
     }
 }

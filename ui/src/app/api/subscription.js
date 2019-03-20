@@ -1,5 +1,5 @@
 /*
- * Copyright © 2016-2017 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,7 +13,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 /*
      options = {
          type,
@@ -80,9 +79,7 @@ export default class Subscription {
             this.alarms = [];
 
             this.originalTimewindow = null;
-            this.timeWindow = {
-                stDiff: this.ctx.stDiff
-            }
+            this.timeWindow = {};
             this.useDashboardTimewindow = options.useDashboardTimewindow;
 
             if (this.useDashboardTimewindow) {
@@ -124,11 +121,9 @@ export default class Subscription {
             this.data = [];
             this.hiddenData = [];
             this.originalTimewindow = null;
-            this.timeWindow = {
-                stDiff: this.ctx.stDiff
-            }
+            this.timeWindow = {};
             this.useDashboardTimewindow = options.useDashboardTimewindow;
-
+            this.stateData = options.stateData;
             if (this.useDashboardTimewindow) {
                 this.timeWindowConfig = angular.copy(options.dashboardTimewindow);
             } else {
@@ -177,9 +172,9 @@ export default class Subscription {
         if (this.type === this.ctx.types.widgetType.rpc.value) {
             if (this.targetDeviceId) {
                 entityId = {
-                    entityType: this.ctx.entityType.device,
+                    entityType: this.ctx.types.entityType.device,
                     id: this.targetDeviceId
-                }
+                };
                 entityName = this.targetDeviceName;
             }
         } else if (this.type == this.ctx.types.widgetType.alarm.value) {
@@ -187,7 +182,7 @@ export default class Subscription {
                 entityId = {
                     entityType: this.alarmSource.entityType,
                     id: this.alarmSource.entityId
-                }
+                };
                 entityName = this.alarmSource.entityName;
             }
         } else {
@@ -197,7 +192,7 @@ export default class Subscription {
                     entityId = {
                         entityType: datasource.entityType,
                         id: datasource.entityId
-                    }
+                    };
                     entityName = datasource.entityName;
                     break;
                 }
@@ -213,24 +208,48 @@ export default class Subscription {
         }
     }
 
-    initAlarmSubscription() {
+    loadStDiff() {
         var deferred = this.ctx.$q.defer();
-        if (!this.ctx.aliasController) {
-            this.configureAlarmsData();
-            deferred.resolve();
-        } else {
-            var subscription = this;
-            this.ctx.aliasController.resolveAlarmSource(this.alarmSource).then(
-                function success(alarmSource) {
-                    subscription.alarmSource = alarmSource;
-                    subscription.configureAlarmsData();
+        if (this.ctx.getStDiff && this.timeWindow) {
+            this.ctx.getStDiff().then(
+                (stDiff) => {
+                    this.timeWindow.stDiff = stDiff;
                     deferred.resolve();
                 },
-                function fail() {
-                    deferred.reject();
+                () => {
+                    this.timeWindow.stDiff = 0;
+                    deferred.resolve();
                 }
             );
+        } else {
+            if (this.timeWindow) {
+                this.timeWindow.stDiff = 0;
+            }
+            deferred.resolve();
         }
+        return deferred.promise;
+    }
+
+    initAlarmSubscription() {
+        var deferred = this.ctx.$q.defer();
+        var subscription = this;
+        this.loadStDiff().then(() => {
+            if (!subscription.ctx.aliasController) {
+                subscription.configureAlarmsData();
+                deferred.resolve();
+            } else {
+                subscription.ctx.aliasController.resolveAlarmSource(subscription.alarmSource).then(
+                    function success(alarmSource) {
+                        subscription.alarmSource = alarmSource;
+                        subscription.configureAlarmsData();
+                        deferred.resolve();
+                    },
+                    function fail() {
+                        deferred.reject();
+                    }
+                );
+            }
+        });
         return deferred.promise;
     }
 
@@ -248,26 +267,36 @@ export default class Subscription {
         } else {
             this.startWatchingTimewindow();
         }
+        registration = this.ctx.$scope.$watch(function () {
+            return subscription.alarmSearchStatus;
+        }, function (newAlarmSearchStatus, prevAlarmSearchStatus) {
+            if (!angular.equals(newAlarmSearchStatus, prevAlarmSearchStatus)) {
+                subscription.update();
+            }
+        }, true);
+        this.registrations.push(registration);
     }
 
     initDataSubscription() {
         var deferred = this.ctx.$q.defer();
-        if (!this.ctx.aliasController) {
-            this.configureData();
-            deferred.resolve();
-        } else {
-            var subscription = this;
-            this.ctx.aliasController.resolveDatasources(this.datasources).then(
-                function success(datasources) {
-                    subscription.datasources = datasources;
-                    subscription.configureData();
-                    deferred.resolve();
-                },
-                function fail() {
-                    deferred.reject();
-                }
-            );
-        }
+        var subscription = this;
+        this.loadStDiff().then(() => {
+            if (!subscription.ctx.aliasController) {
+                subscription.configureData();
+                deferred.resolve();
+            } else {
+                subscription.ctx.aliasController.resolveDatasources(subscription.datasources).then(
+                    function success(datasources) {
+                        subscription.datasources = datasources;
+                        subscription.configureData();
+                        deferred.resolve();
+                    },
+                    function fail() {
+                        deferred.reject();
+                    }
+                );
+            }
+        });
         return deferred.promise;
     }
 
@@ -612,13 +641,19 @@ export default class Subscription {
             this.subscriptionTimewindow =
                 this.ctx.timeService.createSubscriptionTimewindow(
                     this.timeWindowConfig,
-                    this.timeWindow.stDiff);
+                    this.timeWindow.stDiff, this.stateData);
         }
         this.updateTimewindow();
         return this.subscriptionTimewindow;
     }
 
     dataUpdated(sourceData, datasourceIndex, dataKeyIndex, apply) {
+        for (var x = 0; x < this.datasourceListeners.length; x++) {
+            this.datasources[x].dataReceived = this.datasources[x].dataReceived === true;
+            if (this.datasourceListeners[x].datasourceIndex === datasourceIndex && sourceData.data.length > 0) {
+                this.datasources[x].dataReceived = true;
+            }
+        }
         this.notifyDataLoaded();
         var update = true;
         var currentData;
@@ -632,8 +667,9 @@ export default class Subscription {
             if (!sourceData.data.length) {
                 update = false;
             } else if (prevData && prevData[0] && prevData[0].length > 1 && sourceData.data.length > 0) {
+                var prevTs = prevData[0][0];
                 var prevValue = prevData[0][1];
-                if (prevValue === sourceData.data[0][1]) {
+                if (prevTs === sourceData.data[0][0] && prevValue === sourceData.data[0][1]) {
                     update = false;
                 }
             }
@@ -652,11 +688,14 @@ export default class Subscription {
 
     alarmsUpdated(alarms, apply) {
         this.notifyDataLoaded();
+        var updated = !this.alarms || !angular.equals(this.alarms, alarms);
         this.alarms = alarms;
         if (this.subscriptionTimewindow && this.subscriptionTimewindow.realtimeWindowMs) {
             this.updateTimewindow();
         }
-        this.onDataUpdated(apply);
+        if (updated) {
+            this.onDataUpdated(apply);
+        }
     }
 
     updateLegend(dataIndex, data, apply) {
@@ -771,7 +810,7 @@ export default class Subscription {
                 subscription.alarmsUpdated(alarms, apply);
             }
         }
-        this.alarms = [];
+        this.alarms = null;
 
         this.ctx.alarmService.subscribeForAlarms(this.alarmSourceListener);
 

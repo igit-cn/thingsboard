@@ -1,5 +1,5 @@
 /**
- * Copyright © 2016-2017 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -41,6 +41,8 @@ import java.util.List;
 public class WidgetsBundleServiceImpl implements WidgetsBundleService {
 
     private static final int DEFAULT_WIDGETS_BUNDLE_LIMIT = 300;
+    public static final String INCORRECT_TENANT_ID = "Incorrect tenantId ";
+    public static final String INCORRECT_PAGE_LINK = "Incorrect page link ";
 
     @Autowired
     private WidgetsBundleDao widgetsBundleDao;
@@ -52,54 +54,54 @@ public class WidgetsBundleServiceImpl implements WidgetsBundleService {
     private WidgetTypeService widgetTypeService;
 
     @Override
-    public WidgetsBundle findWidgetsBundleById(WidgetsBundleId widgetsBundleId) {
+    public WidgetsBundle findWidgetsBundleById(TenantId tenantId, WidgetsBundleId widgetsBundleId) {
         log.trace("Executing findWidgetsBundleById [{}]", widgetsBundleId);
         Validator.validateId(widgetsBundleId, "Incorrect widgetsBundleId " + widgetsBundleId);
-        return widgetsBundleDao.findById(widgetsBundleId.getId());
+        return widgetsBundleDao.findById(tenantId, widgetsBundleId.getId());
     }
 
     @Override
     public WidgetsBundle saveWidgetsBundle(WidgetsBundle widgetsBundle) {
         log.trace("Executing saveWidgetsBundle [{}]", widgetsBundle);
-        widgetsBundleValidator.validate(widgetsBundle);
-        return widgetsBundleDao.save(widgetsBundle);
+        widgetsBundleValidator.validate(widgetsBundle, WidgetsBundle::getTenantId);
+        return widgetsBundleDao.save(widgetsBundle.getTenantId(), widgetsBundle);
     }
 
     @Override
-    public void deleteWidgetsBundle(WidgetsBundleId widgetsBundleId) {
+    public void deleteWidgetsBundle(TenantId tenantId, WidgetsBundleId widgetsBundleId) {
         log.trace("Executing deleteWidgetsBundle [{}]", widgetsBundleId);
         Validator.validateId(widgetsBundleId, "Incorrect widgetsBundleId " + widgetsBundleId);
-        WidgetsBundle widgetsBundle = findWidgetsBundleById(widgetsBundleId);
+        WidgetsBundle widgetsBundle = findWidgetsBundleById(tenantId, widgetsBundleId);
         if (widgetsBundle == null) {
             throw new IncorrectParameterException("Unable to delete non-existent widgets bundle.");
         }
         widgetTypeService.deleteWidgetTypesByTenantIdAndBundleAlias(widgetsBundle.getTenantId(), widgetsBundle.getAlias());
-        widgetsBundleDao.removeById(widgetsBundleId.getId());
+        widgetsBundleDao.removeById(tenantId, widgetsBundleId.getId());
     }
 
     @Override
     public WidgetsBundle findWidgetsBundleByTenantIdAndAlias(TenantId tenantId, String alias) {
         log.trace("Executing findWidgetsBundleByTenantIdAndAlias, tenantId [{}], alias [{}]", tenantId, alias);
-        Validator.validateId(tenantId, "Incorrect tenantId " + tenantId);
+        Validator.validateId(tenantId, INCORRECT_TENANT_ID + tenantId);
         Validator.validateString(alias, "Incorrect alias " + alias);
         return widgetsBundleDao.findWidgetsBundleByTenantIdAndAlias(tenantId.getId(), alias);
     }
 
     @Override
-    public TextPageData<WidgetsBundle> findSystemWidgetsBundlesByPageLink(TextPageLink pageLink) {
+    public TextPageData<WidgetsBundle> findSystemWidgetsBundlesByPageLink(TenantId tenantId, TextPageLink pageLink) {
         log.trace("Executing findSystemWidgetsBundles, pageLink [{}]", pageLink);
-        Validator.validatePageLink(pageLink, "Incorrect page link " + pageLink);
-        return new TextPageData<>(widgetsBundleDao.findSystemWidgetsBundles(pageLink), pageLink);
+        Validator.validatePageLink(pageLink, INCORRECT_PAGE_LINK + pageLink);
+        return new TextPageData<>(widgetsBundleDao.findSystemWidgetsBundles(tenantId, pageLink), pageLink);
     }
 
     @Override
-    public List<WidgetsBundle> findSystemWidgetsBundles() {
+    public List<WidgetsBundle> findSystemWidgetsBundles(TenantId tenantId) {
         log.trace("Executing findSystemWidgetsBundles");
         List<WidgetsBundle> widgetsBundles = new ArrayList<>();
         TextPageLink pageLink = new TextPageLink(DEFAULT_WIDGETS_BUNDLE_LIMIT);
         TextPageData<WidgetsBundle> pageData;
         do {
-            pageData = findSystemWidgetsBundlesByPageLink(pageLink);
+            pageData = findSystemWidgetsBundlesByPageLink(tenantId, pageLink);
             widgetsBundles.addAll(pageData.getData());
             if (pageData.hasNext()) {
                 pageLink = pageData.getNextPageLink();
@@ -111,23 +113,23 @@ public class WidgetsBundleServiceImpl implements WidgetsBundleService {
     @Override
     public TextPageData<WidgetsBundle> findTenantWidgetsBundlesByTenantId(TenantId tenantId, TextPageLink pageLink) {
         log.trace("Executing findTenantWidgetsBundlesByTenantId, tenantId [{}], pageLink [{}]", tenantId, pageLink);
-        Validator.validateId(tenantId, "Incorrect tenantId " + tenantId);
-        Validator.validatePageLink(pageLink, "Incorrect page link " + pageLink);
+        Validator.validateId(tenantId, INCORRECT_TENANT_ID + tenantId);
+        Validator.validatePageLink(pageLink, INCORRECT_PAGE_LINK + pageLink);
         return new TextPageData<>(widgetsBundleDao.findTenantWidgetsBundlesByTenantId(tenantId.getId(), pageLink), pageLink);
     }
 
     @Override
     public TextPageData<WidgetsBundle> findAllTenantWidgetsBundlesByTenantIdAndPageLink(TenantId tenantId, TextPageLink pageLink) {
         log.trace("Executing findAllTenantWidgetsBundlesByTenantIdAndPageLink, tenantId [{}], pageLink [{}]", tenantId, pageLink);
-        Validator.validateId(tenantId, "Incorrect tenantId " + tenantId);
-        Validator.validatePageLink(pageLink, "Incorrect page link " + pageLink);
+        Validator.validateId(tenantId, INCORRECT_TENANT_ID + tenantId);
+        Validator.validatePageLink(pageLink, INCORRECT_PAGE_LINK + pageLink);
         return new TextPageData<>(widgetsBundleDao.findAllTenantWidgetsBundlesByTenantId(tenantId.getId(), pageLink), pageLink);
     }
 
     @Override
     public List<WidgetsBundle> findAllTenantWidgetsBundlesByTenantId(TenantId tenantId) {
         log.trace("Executing findAllTenantWidgetsBundlesByTenantId, tenantId [{}]", tenantId);
-        Validator.validateId(tenantId, "Incorrect tenantId " + tenantId);
+        Validator.validateId(tenantId, INCORRECT_TENANT_ID + tenantId);
         List<WidgetsBundle> widgetsBundles = new ArrayList<>();
         TextPageLink pageLink = new TextPageLink(DEFAULT_WIDGETS_BUNDLE_LIMIT);
         TextPageData<WidgetsBundle> pageData;
@@ -144,15 +146,15 @@ public class WidgetsBundleServiceImpl implements WidgetsBundleService {
     @Override
     public void deleteWidgetsBundlesByTenantId(TenantId tenantId) {
         log.trace("Executing deleteWidgetsBundlesByTenantId, tenantId [{}]", tenantId);
-        Validator.validateId(tenantId, "Incorrect tenantId " + tenantId);
-        tenantWidgetsBundleRemover.removeEntities(tenantId);
+        Validator.validateId(tenantId, INCORRECT_TENANT_ID + tenantId);
+        tenantWidgetsBundleRemover.removeEntities(tenantId, tenantId);
     }
 
     private DataValidator<WidgetsBundle> widgetsBundleValidator =
             new DataValidator<WidgetsBundle>() {
 
                 @Override
-                protected void validateDataImpl(WidgetsBundle widgetsBundle) {
+                protected void validateDataImpl(TenantId tenantId, WidgetsBundle widgetsBundle) {
                     if (StringUtils.isEmpty(widgetsBundle.getTitle())) {
                         throw new DataValidationException("Widgets bundle title should be specified!");
                     }
@@ -160,7 +162,7 @@ public class WidgetsBundleServiceImpl implements WidgetsBundleService {
                         widgetsBundle.setTenantId(new TenantId(ModelConstants.NULL_UUID));
                     }
                     if (!widgetsBundle.getTenantId().getId().equals(ModelConstants.NULL_UUID)) {
-                        Tenant tenant = tenantDao.findById(widgetsBundle.getTenantId().getId());
+                        Tenant tenant = tenantDao.findById(tenantId, widgetsBundle.getTenantId().getId());
                         if (tenant == null) {
                             throw new DataValidationException("Widgets bundle is referencing to non-existent tenant!");
                         }
@@ -168,7 +170,7 @@ public class WidgetsBundleServiceImpl implements WidgetsBundleService {
                 }
 
                 @Override
-                protected void validateCreate(WidgetsBundle widgetsBundle) {
+                protected void validateCreate(TenantId tenantId, WidgetsBundle widgetsBundle) {
                     String alias = widgetsBundle.getAlias();
                     if (alias == null || alias.trim().isEmpty()) {
                         alias = widgetsBundle.getTitle().toLowerCase().replaceAll("\\W+", "_");
@@ -186,8 +188,8 @@ public class WidgetsBundleServiceImpl implements WidgetsBundleService {
                 }
 
                 @Override
-                protected void validateUpdate(WidgetsBundle widgetsBundle) {
-                    WidgetsBundle storedWidgetsBundle = widgetsBundleDao.findById(widgetsBundle.getId().getId());
+                protected void validateUpdate(TenantId tenantId, WidgetsBundle widgetsBundle) {
+                    WidgetsBundle storedWidgetsBundle = widgetsBundleDao.findById(tenantId, widgetsBundle.getId().getId());
                     if (!storedWidgetsBundle.getTenantId().getId().equals(widgetsBundle.getTenantId().getId())) {
                         throw new DataValidationException("Can't move existing widgets bundle to different tenant!");
                     }
@@ -202,13 +204,13 @@ public class WidgetsBundleServiceImpl implements WidgetsBundleService {
             new PaginatedRemover<TenantId, WidgetsBundle>() {
 
                 @Override
-                protected List<WidgetsBundle> findEntities(TenantId id, TextPageLink pageLink) {
+                protected List<WidgetsBundle> findEntities(TenantId tenantId, TenantId id, TextPageLink pageLink) {
                     return widgetsBundleDao.findTenantWidgetsBundlesByTenantId(id.getId(), pageLink);
                 }
 
                 @Override
-                protected void removeEntity(WidgetsBundle entity) {
-                    deleteWidgetsBundle(new WidgetsBundleId(entity.getUuidId()));
+                protected void removeEntity(TenantId tenantId, WidgetsBundle entity) {
+                    deleteWidgetsBundle(tenantId, new WidgetsBundleId(entity.getUuidId()));
                 }
             };
 

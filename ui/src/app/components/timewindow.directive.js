@@ -1,5 +1,5 @@
 /*
- * Copyright © 2016-2017 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -69,7 +69,7 @@ function Timewindow($compile, $templateCache, $filter, $mdPanel, $document, $mdM
         scope.isToolbar = angular.isDefined(attrs.isToolbar);
 
         scope.hideLabel = function() {
-            return scope.isToolbar && !$mdMedia('gt-sm');
+            return scope.isToolbar && !$mdMedia('gt-md');
         }
 
         var translationPending = false;
@@ -228,7 +228,7 @@ function Timewindow($compile, $templateCache, $filter, $mdPanel, $document, $mdM
                     if (angular.isDefined(value.aggregation.type) && value.aggregation.type.length > 0) {
                         model.aggregation.type = value.aggregation.type;
                     }
-                    model.aggregation.limit = value.aggregation.limit || timeService.avgAggregationLimit();
+                    model.aggregation.limit = value.aggregation.limit || Math.floor(timeService.getMaxDatapointsLimit() / 2);
                 }
             }
             scope.updateDisplayValue();

@@ -1,5 +1,5 @@
 /*
- * Copyright © 2016-2017 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,7 +13,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 const varsRegex = /\$\{([^\}]*)\}/g;
 
 const linkActionRegex = /\<link-act name=['"]([^['"]*)['"]\>([^\<]*)\<\/link-act\>/g;
@@ -74,22 +73,24 @@ export function processPattern(pattern, datasources, dsIndex) {
 
 export function fillPattern(pattern, replaceInfo, data) {
     var text = angular.copy(pattern);
-    for (var v = 0; v < replaceInfo.variables.length; v++) {
-        var variableInfo = replaceInfo.variables[v];
-        var txtVal = '';
-        if (variableInfo.dataKeyIndex > -1 && data[variableInfo.dataKeyIndex]) {
-            var varData = data[variableInfo.dataKeyIndex].data;
-            if (varData.length > 0) {
-                var val = varData[varData.length - 1][1];
-                if (isNumber(val)) {
-                    txtVal = padValue(val, variableInfo.valDec, 0);
-                } else {
-                    txtVal = val;
-                }
-            }
-        }
-        text = text.split(variableInfo.variable).join(txtVal);
-    }
+    if (replaceInfo) {
+		for (var v = 0; v < replaceInfo.variables.length; v++) {
+			var variableInfo = replaceInfo.variables[v];
+			var txtVal = '';
+			if (variableInfo.dataKeyIndex > -1 && data[variableInfo.dataKeyIndex]) {
+				var varData = data[variableInfo.dataKeyIndex].data;
+				if (varData.length > 0) {
+					var val = varData[varData.length - 1][1];
+					if (isNumber(val)) {
+						txtVal = padValue(val, variableInfo.valDec, 0);
+					} else {
+						txtVal = val;
+					}
+				}
+			}
+			text = text.split(variableInfo.variable).join(txtVal);
+		}
+	}
     return text;
 }
 
@@ -140,18 +141,24 @@ export function toLabelValueMap(data, datasources) {
     var dataMap = {};
     var dsDataMap = [];
     for (var d=0;d<datasources.length;d++) {
-        dsDataMap[d] = {};
+        dsDataMap[d] = {
+            $datasource: datasources[d]
+        };
     }
     for (var i = 0; i < data.length; i++) {
         var dataKey = data[i].dataKey;
         var label = dataKey.label;
         var keyData = data[i].data;
+        var ts = null;
         var val = null;
         if (keyData.length > 0) {
+            ts = keyData[keyData.length-1][0];
             val = keyData[keyData.length-1][1];
         }
+        dataMap[label+'|ts'] = ts;
         dataMap[label] = val;
         var dsIndex = datasources.indexOf(data[i].datasource);
+        dsDataMap[dsIndex][label+'|ts'] = ts;
         dsDataMap[dsIndex][label] = val;
     }
     return {

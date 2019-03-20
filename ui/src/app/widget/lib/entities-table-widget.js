@@ -1,5 +1,5 @@
 /*
- * Copyright © 2016-2017 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,13 +13,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 import './entities-table-widget.scss';
+import './display-columns-panel.scss';
 
 /* eslint-disable import/no-unresolved, import/default */
 
 import entitiesTableWidgetTemplate from './entities-table-widget.tpl.html';
 //import entityDetailsDialogTemplate from './entitiy-details-dialog.tpl.html';
+import displayColumnsPanelTemplate from './display-columns-panel.tpl.html';
 
 /* eslint-enable import/no-unresolved, import/default */
 
@@ -46,7 +47,7 @@ function EntitiesTableWidget() {
 }
 
 /*@ngInject*/
-function EntitiesTableWidgetController($element, $scope, $filter, $mdMedia, $translate, utils, types) {
+function EntitiesTableWidgetController($element, $scope, $filter, $mdMedia, $mdPanel, $document, $translate, $timeout, utils, types) {
     var vm = this;
 
     vm.stylesInfo = {};
@@ -98,6 +99,8 @@ function EntitiesTableWidgetController($element, $scope, $filter, $mdMedia, $tra
 
     vm.cellStyle = cellStyle;
     vm.cellContent = cellContent;
+
+    vm.editColumnsToDisplay = editColumnsToDisplay;
 
     $scope.$watch('vm.ctx', function() {
         if (vm.ctx && vm.ctx.defaultSubscription) {
@@ -255,6 +258,9 @@ function EntitiesTableWidgetController($element, $scope, $filter, $mdMedia, $tra
     function enterFilterMode () {
         vm.query.search = '';
         vm.ctx.hideTitlePanel = true;
+        $timeout(()=>{
+            angular.element(vm.ctx.$container).find('.searchInput').focus();
+        })
     }
 
     function exitFilterMode () {
@@ -340,7 +346,11 @@ function EntitiesTableWidgetController($element, $scope, $filter, $mdMedia, $tra
         }
         if (!style.width) {
             var columnWidth = vm.columnWidth[key.label];
-            style.width = columnWidth;
+            if(columnWidth !== "0px") {
+                style.width = columnWidth;
+            } else {
+                style.width = "auto";
+            }
         }
         return style;
     }
@@ -361,19 +371,13 @@ function EntitiesTableWidgetController($element, $scope, $filter, $mdMedia, $tra
                     content = strContent;
                 }
             } else {
-                content = defaultContent(key, value);
+                var decimals = (contentInfo.decimals || contentInfo.decimals === 0) ? contentInfo.decimals : vm.widgetConfig.decimals;
+                var units = contentInfo.units || vm.widgetConfig.units;
+                content = vm.ctx.utils.formatValue(value, decimals, units, true);
             }
             return content;
         } else {
             return strContent;
-        }
-    }
-
-    function defaultContent(key, value) {
-        if (angular.isDefined(value)) {
-            return value;
-        } else {
-            return '';
         }
     }
 
@@ -408,12 +412,37 @@ function EntitiesTableWidgetController($element, $scope, $filter, $mdMedia, $tra
         }
     }
 
+    function editColumnsToDisplay($event) {
+        var element = angular.element($event.target);
+        var position = $mdPanel.newPanelPosition()
+            .relativeTo(element)
+            .addPanelPosition($mdPanel.xPosition.ALIGN_END, $mdPanel.yPosition.BELOW);
+        var config = {
+            attachTo: angular.element($document[0].body),
+            controller: DisplayColumnsPanelController,
+            controllerAs: 'vm',
+            templateUrl: displayColumnsPanelTemplate,
+            panelClass: 'tb-display-columns-panel',
+            position: position,
+            fullscreen: false,
+            locals: {
+                'columns': vm.columns
+            },
+            openFrom: $event,
+            clickOutsideToClose: true,
+            escapeToClose: true,
+            focusOnOpen: false
+        };
+        $mdPanel.open(config);
+    }
+
     function updateDatasources() {
 
         vm.stylesInfo = {};
         vm.contentsInfo = {};
         vm.columnWidth = {};
         vm.dataKeys = [];
+        vm.columns = [];
         vm.allEntities = [];
 
         var datasource;
@@ -422,6 +451,42 @@ function EntitiesTableWidgetController($element, $scope, $filter, $mdMedia, $tra
         datasource = vm.datasources[0];
 
         vm.ctx.widgetTitle = utils.createLabelFromDatasource(datasource, vm.entitiesTitle);
+
+        if (vm.displayEntityName) {
+            vm.columns.push(
+                {
+                    name: 'entityName',
+                    label: 'entityName',
+                    title: vm.entityNameColumnTitle,
+                    display: true
+                }
+            );
+            vm.contentsInfo['entityName'] = {
+                useCellContentFunction: false
+            };
+            vm.stylesInfo['entityName'] = {
+                useCellStyleFunction: false
+            };
+            vm.columnWidth['entityName'] = '0px';
+        }
+
+        if (vm.displayEntityType) {
+            vm.columns.push(
+                {
+                    name: 'entityType',
+                    label: 'entityType',
+                    title: $translate.instant('entity.entity-type'),
+                    display: true
+                }
+            );
+            vm.contentsInfo['entityType'] = {
+                useCellContentFunction: false
+            };
+            vm.stylesInfo['entityType'] = {
+                useCellStyleFunction: false
+            };
+            vm.columnWidth['entityType'] = '0px';
+        }
 
         for (var d = 0; d < datasource.dataKeys.length; d++ ) {
             dataKey = angular.copy(datasource.dataKeys[d]);
@@ -471,11 +536,16 @@ function EntitiesTableWidgetController($element, $scope, $filter, $mdMedia, $tra
 
             vm.contentsInfo[dataKey.label] = {
                 useCellContentFunction: useCellContentFunction,
-                cellContentFunction: cellContentFunction
+                cellContentFunction: cellContentFunction,
+                units: dataKey.units,
+                decimals: dataKey.decimals
             };
 
             var columnWidth = angular.isDefined(keySettings.columnWidth) ? keySettings.columnWidth : '0px';
             vm.columnWidth[dataKey.label] = columnWidth;
+
+            dataKey.display = true;
+            vm.columns.push(dataKey);
         }
 
         for (var i=0;i<vm.datasources.length;i++) {
@@ -505,4 +575,11 @@ function EntitiesTableWidgetController($element, $scope, $filter, $mdMedia, $tra
 
     }
 
+}
+
+/*@ngInject*/
+function DisplayColumnsPanelController(columns) {  //eslint-disable-line
+
+    var vm = this;
+    vm.columns = columns;
 }

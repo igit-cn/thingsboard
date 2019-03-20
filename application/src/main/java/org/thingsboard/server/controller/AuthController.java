@@ -1,5 +1,5 @@
 /**
- * Copyright © 2016-2017 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,21 +19,25 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.extern.slf4j.Slf4j;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestController;
+import org.thingsboard.rule.engine.api.MailService;
 import org.thingsboard.server.common.data.User;
+import org.thingsboard.server.common.data.exception.ThingsboardErrorCode;
+import org.thingsboard.server.common.data.exception.ThingsboardException;
+import org.thingsboard.server.common.data.id.TenantId;
 import org.thingsboard.server.common.data.security.UserCredentials;
-import org.thingsboard.server.dao.user.UserService;
-import org.thingsboard.server.exception.ThingsboardErrorCode;
-import org.thingsboard.server.exception.ThingsboardException;
-import org.thingsboard.server.service.mail.MailService;
 import org.thingsboard.server.service.security.auth.jwt.RefreshTokenRepository;
 import org.thingsboard.server.service.security.model.SecurityUser;
 import org.thingsboard.server.service.security.model.UserPrincipal;
@@ -49,8 +53,6 @@ import java.net.URISyntaxException;
 @Slf4j
 public class AuthController extends BaseController {
 
-
-
     @Autowired
     private BCryptPasswordEncoder passwordEncoder;
 
@@ -61,9 +63,6 @@ public class AuthController extends BaseController {
     private RefreshTokenRepository refreshTokenRepository;
 
     @Autowired
-    private UserService userService;
-
-    @Autowired
     private MailService mailService;
 
     @PreAuthorize("isAuthenticated()")
@@ -71,7 +70,7 @@ public class AuthController extends BaseController {
     public @ResponseBody User getUser() throws ThingsboardException {
         try {
             SecurityUser securityUser = getCurrentUser();
-            return userService.findUserById(securityUser.getId());
+            return userService.findUserById(securityUser.getTenantId(), securityUser.getId());
         } catch (Exception e) {
             throw handleException(e);
         }
@@ -81,16 +80,17 @@ public class AuthController extends BaseController {
     @RequestMapping(value = "/auth/changePassword", method = RequestMethod.POST)
     @ResponseStatus(value = HttpStatus.OK)
     public void changePassword (
-            @RequestParam(value = "currentPassword") String currentPassword,
-            @RequestParam(value = "newPassword") String newPassword) throws ThingsboardException {
+            @RequestBody JsonNode changePasswordRequest) throws ThingsboardException {
         try {
+            String currentPassword = changePasswordRequest.get("currentPassword").asText();
+            String newPassword = changePasswordRequest.get("newPassword").asText();
             SecurityUser securityUser = getCurrentUser();
-            UserCredentials userCredentials = userService.findUserCredentialsByUserId(securityUser.getId());
+            UserCredentials userCredentials = userService.findUserCredentialsByUserId(TenantId.SYS_TENANT_ID, securityUser.getId());
             if (!passwordEncoder.matches(currentPassword, userCredentials.getPassword())) {
                 throw new ThingsboardException("Current password doesn't match!", ThingsboardErrorCode.BAD_REQUEST_PARAMS);
             }
             userCredentials.setPassword(passwordEncoder.encode(newPassword));
-            userService.saveUserCredentials(userCredentials);
+            userService.saveUserCredentials(securityUser.getTenantId(), userCredentials);
         } catch (Exception e) {
             throw handleException(e);
         }
@@ -101,15 +101,15 @@ public class AuthController extends BaseController {
             @RequestParam(value = "activateToken") String activateToken) {
         HttpHeaders headers = new HttpHeaders();
         HttpStatus responseStatus;
-        UserCredentials userCredentials = userService.findUserCredentialsByActivateToken(activateToken);
+        UserCredentials userCredentials = userService.findUserCredentialsByActivateToken(TenantId.SYS_TENANT_ID, activateToken);
         if (userCredentials != null) {
-            String createPasswordURI = "/login/createPassword";
+            String createURI = "/login/createPassword";
             try {
-                URI location = new URI(createPasswordURI + "?activateToken=" + activateToken);
+                URI location = new URI(createURI + "?activateToken=" + activateToken);
                 headers.setLocation(location);
                 responseStatus = HttpStatus.SEE_OTHER;
             } catch (URISyntaxException e) {
-                log.error("Unable to create URI with address [{}]", createPasswordURI);
+                log.error("Unable to create URI with address [{}]", createURI);
                 responseStatus = HttpStatus.BAD_REQUEST;
             }
         } else {
@@ -121,15 +121,16 @@ public class AuthController extends BaseController {
     @RequestMapping(value = "/noauth/resetPasswordByEmail", method = RequestMethod.POST)
     @ResponseStatus(value = HttpStatus.OK)
     public void requestResetPasswordByEmail (
-            @RequestParam(value = "email") String email,
+            @RequestBody JsonNode resetPasswordByEmailRequest,
             HttpServletRequest request) throws ThingsboardException {
         try {
-            UserCredentials userCredentials = userService.requestPasswordReset(email);
+            String email = resetPasswordByEmailRequest.get("email").asText();
+            UserCredentials userCredentials = userService.requestPasswordReset(TenantId.SYS_TENANT_ID, email);
             String baseUrl = constructBaseUrl(request);
-            String resetPasswordUrl = String.format("%s/api/noauth/resetPassword?resetToken=%s", baseUrl,
+            String resetUrl = String.format("%s/api/noauth/resetPassword?resetToken=%s", baseUrl,
                     userCredentials.getResetToken());
             
-            mailService.sendResetPasswordEmail(resetPasswordUrl, email);
+            mailService.sendResetPasswordEmail(resetUrl, email);
         } catch (Exception e) {
             throw handleException(e);
         }
@@ -140,15 +141,15 @@ public class AuthController extends BaseController {
             @RequestParam(value = "resetToken") String resetToken) {
         HttpHeaders headers = new HttpHeaders();
         HttpStatus responseStatus;
-        String resetPasswordURI = "/login/resetPassword";
-        UserCredentials userCredentials = userService.findUserCredentialsByResetToken(resetToken);
+        String resetURI = "/login/resetPassword";
+        UserCredentials userCredentials = userService.findUserCredentialsByResetToken(TenantId.SYS_TENANT_ID, resetToken);
         if (userCredentials != null) {
             try {
-                URI location = new URI(resetPasswordURI + "?resetToken=" + resetToken);
+                URI location = new URI(resetURI + "?resetToken=" + resetToken);
                 headers.setLocation(location);
                 responseStatus = HttpStatus.SEE_OTHER;
             } catch (URISyntaxException e) {
-                log.error("Unable to create URI with address [{}]", resetPasswordURI);
+                log.error("Unable to create URI with address [{}]", resetURI);
                 responseStatus = HttpStatus.BAD_REQUEST;
             }
         } else {
@@ -161,13 +162,14 @@ public class AuthController extends BaseController {
     @ResponseStatus(value = HttpStatus.OK)
     @ResponseBody
     public JsonNode activateUser(
-            @RequestParam(value = "activateToken") String activateToken,
-            @RequestParam(value = "password") String password,
+            @RequestBody JsonNode activateRequest,
             HttpServletRequest request) throws ThingsboardException {
         try {
+            String activateToken = activateRequest.get("activateToken").asText();
+            String password = activateRequest.get("password").asText();
             String encodedPassword = passwordEncoder.encode(password);
-            UserCredentials credentials = userService.activateUserCredentials(activateToken, encodedPassword);
-            User user = userService.findUserById(credentials.getUserId());
+            UserCredentials credentials = userService.activateUserCredentials(TenantId.SYS_TENANT_ID, activateToken, encodedPassword);
+            User user = userService.findUserById(TenantId.SYS_TENANT_ID, credentials.getUserId());
             UserPrincipal principal = new UserPrincipal(UserPrincipal.Type.USER_NAME, user.getEmail());
             SecurityUser securityUser = new SecurityUser(user, credentials.isEnabled(), principal);
             String baseUrl = constructBaseUrl(request);
@@ -197,17 +199,18 @@ public class AuthController extends BaseController {
     @ResponseStatus(value = HttpStatus.OK)
     @ResponseBody
     public JsonNode resetPassword(
-            @RequestParam(value = "resetToken") String resetToken,
-            @RequestParam(value = "password") String password,
+            @RequestBody JsonNode resetPasswordRequest,
             HttpServletRequest request) throws ThingsboardException {
         try {
-            UserCredentials userCredentials = userService.findUserCredentialsByResetToken(resetToken);
+            String resetToken = resetPasswordRequest.get("resetToken").asText();
+            String password = resetPasswordRequest.get("password").asText();
+            UserCredentials userCredentials = userService.findUserCredentialsByResetToken(TenantId.SYS_TENANT_ID, resetToken);
             if (userCredentials != null) {
                 String encodedPassword = passwordEncoder.encode(password);
                 userCredentials.setPassword(encodedPassword);
                 userCredentials.setResetToken(null);
-                userCredentials = userService.saveUserCredentials(userCredentials);
-                User user = userService.findUserById(userCredentials.getUserId());
+                userCredentials = userService.saveUserCredentials(TenantId.SYS_TENANT_ID, userCredentials);
+                User user = userService.findUserById(TenantId.SYS_TENANT_ID, userCredentials.getUserId());
                 UserPrincipal principal = new UserPrincipal(UserPrincipal.Type.USER_NAME, user.getEmail());
                 SecurityUser securityUser = new SecurityUser(user, userCredentials.isEnabled(), principal);
                 String baseUrl = constructBaseUrl(request);

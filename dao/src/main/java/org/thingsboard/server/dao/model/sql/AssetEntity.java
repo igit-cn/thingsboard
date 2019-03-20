@@ -1,5 +1,5 @@
 /**
- * Copyright © 2016-2017 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -34,9 +34,13 @@ import org.thingsboard.server.dao.util.mapping.JsonStringType;
 import javax.persistence.Column;
 import javax.persistence.Entity;
 import javax.persistence.Table;
-import javax.persistence.Transient;
 
-import static org.thingsboard.server.dao.model.ModelConstants.*;
+import static org.thingsboard.server.dao.model.ModelConstants.ASSET_COLUMN_FAMILY_NAME;
+import static org.thingsboard.server.dao.model.ModelConstants.ASSET_CUSTOMER_ID_PROPERTY;
+import static org.thingsboard.server.dao.model.ModelConstants.ASSET_NAME_PROPERTY;
+import static org.thingsboard.server.dao.model.ModelConstants.ASSET_TENANT_ID_PROPERTY;
+import static org.thingsboard.server.dao.model.ModelConstants.ASSET_TYPE_PROPERTY;
+import static org.thingsboard.server.dao.model.ModelConstants.SEARCH_TEXT_PROPERTY;
 
 @Data
 @EqualsAndHashCode(callSuper = true)
@@ -44,9 +48,6 @@ import static org.thingsboard.server.dao.model.ModelConstants.*;
 @TypeDef(name = "json", typeClass = JsonStringType.class)
 @Table(name = ASSET_COLUMN_FAMILY_NAME)
 public final class AssetEntity extends BaseSqlEntity<Asset> implements SearchTextEntity<Asset> {
-
-    @Transient
-    private static final long serialVersionUID = -4089175869616037592L;
 
     @Column(name = ASSET_TENANT_ID_PROPERTY)
     private String tenantId;

@@ -1,5 +1,5 @@
 /**
- * Copyright © 2016-2017 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,15 +28,21 @@ import org.thingsboard.server.dao.model.type.JsonCodec;
 
 import java.util.UUID;
 
-import static org.thingsboard.server.dao.model.ModelConstants.*;
+import static org.thingsboard.server.dao.model.ModelConstants.COMPONENT_DESCRIPTOR_ACTIONS_PROPERTY;
+import static org.thingsboard.server.dao.model.ModelConstants.COMPONENT_DESCRIPTOR_CLASS_PROPERTY;
+import static org.thingsboard.server.dao.model.ModelConstants.COMPONENT_DESCRIPTOR_COLUMN_FAMILY_NAME;
+import static org.thingsboard.server.dao.model.ModelConstants.COMPONENT_DESCRIPTOR_CONFIGURATION_DESCRIPTOR_PROPERTY;
+import static org.thingsboard.server.dao.model.ModelConstants.COMPONENT_DESCRIPTOR_NAME_PROPERTY;
+import static org.thingsboard.server.dao.model.ModelConstants.COMPONENT_DESCRIPTOR_SCOPE_PROPERTY;
+import static org.thingsboard.server.dao.model.ModelConstants.COMPONENT_DESCRIPTOR_TYPE_PROPERTY;
+import static org.thingsboard.server.dao.model.ModelConstants.ID_PROPERTY;
+import static org.thingsboard.server.dao.model.ModelConstants.SEARCH_TEXT_PROPERTY;
 
 /**
  * @author Andrew Shvayka
  */
 @Table(name = COMPONENT_DESCRIPTOR_COLUMN_FAMILY_NAME)
 public class ComponentDescriptorEntity implements SearchTextEntity<ComponentDescriptor> {
-
-    private static final long serialVersionUID = 1L;
 
     @PartitionKey
     @Column(name = ID_PROPERTY)
@@ -160,6 +166,6 @@ public class ComponentDescriptorEntity implements SearchTextEntity<ComponentDesc
 
     @Override
     public String getSearchTextSource() {
-        return searchText;
+        return getSearchText();
     }
 }
