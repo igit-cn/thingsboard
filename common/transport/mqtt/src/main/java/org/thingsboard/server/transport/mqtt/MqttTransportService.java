@@ -1,5 +1,5 @@
 /**
- * Copyright © 2016-2019 The Thingsboard Authors
+ * Copyright © 2016-2021 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@ package org.thingsboard.server.transport.mqtt;
 
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
+import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
@@ -27,6 +28,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
+import org.thingsboard.server.common.data.DataConstants;
+import org.thingsboard.server.common.data.TbTransportService;
 
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
@@ -35,14 +38,22 @@ import javax.annotation.PreDestroy;
  * @author Andrew Shvayka
  */
 @Service("MqttTransportService")
-@ConditionalOnExpression("'${transport.type:null}'=='null' || ('${transport.type}'=='local' && '${transport.mqtt.enabled}'=='true')")
+@ConditionalOnExpression("'${service.type:null}'=='tb-transport' || ('${service.type:null}'=='monolith' && '${transport.api_enabled:true}'=='true' && '${transport.mqtt.enabled}'=='true')")
 @Slf4j
-public class MqttTransportService {
+public class MqttTransportService implements TbTransportService {
 
     @Value("${transport.mqtt.bind_address}")
     private String host;
     @Value("${transport.mqtt.bind_port}")
     private Integer port;
+
+    @Value("${transport.mqtt.ssl.enabled}")
+    private boolean sslEnabled;
+
+    @Value("${transport.mqtt.ssl.bind_address}")
+    private String sslHost;
+    @Value("${transport.mqtt.ssl.bind_port}")
+    private Integer sslPort;
 
     @Value("${transport.mqtt.netty.leak_detector_level}")
     private String leakDetectorLevel;
@@ -50,11 +61,14 @@ public class MqttTransportService {
     private Integer bossGroupThreadCount;
     @Value("${transport.mqtt.netty.worker_group_thread_count}")
     private Integer workerGroupThreadCount;
+    @Value("${transport.mqtt.netty.so_keep_alive}")
+    private boolean keepAlive;
 
     @Autowired
     private MqttTransportContext context;
 
     private Channel serverChannel;
+    private Channel sslServerChannel;
     private EventLoopGroup bossGroup;
     private EventLoopGroup workerGroup;
 
@@ -69,9 +83,18 @@ public class MqttTransportService {
         ServerBootstrap b = new ServerBootstrap();
         b.group(bossGroup, workerGroup)
                 .channel(NioServerSocketChannel.class)
-                .childHandler(new MqttTransportServerInitializer(context));
+                .childHandler(new MqttTransportServerInitializer(context, false))
+                .childOption(ChannelOption.SO_KEEPALIVE, keepAlive);
 
         serverChannel = b.bind(host, port).sync().channel();
+        if (sslEnabled) {
+            b = new ServerBootstrap();
+            b.group(bossGroup, workerGroup)
+                    .channel(NioServerSocketChannel.class)
+                    .childHandler(new MqttTransportServerInitializer(context, true))
+                    .childOption(ChannelOption.SO_KEEPALIVE, keepAlive);
+            sslServerChannel = b.bind(sslHost, sslPort).sync().channel();
+        }
         log.info("Mqtt transport started!");
     }
 
@@ -80,10 +103,18 @@ public class MqttTransportService {
         log.info("Stopping MQTT transport!");
         try {
             serverChannel.close().sync();
+            if (sslEnabled) {
+                sslServerChannel.close().sync();
+            }
         } finally {
             workerGroup.shutdownGracefully();
             bossGroup.shutdownGracefully();
         }
         log.info("MQTT transport stopped!");
+    }
+
+    @Override
+    public String getName() {
+        return DataConstants.MQTT_TRANSPORT_NAME;
     }
 }

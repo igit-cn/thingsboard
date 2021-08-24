@@ -1,5 +1,5 @@
 /**
- * Copyright © 2016-2019 The Thingsboard Authors
+ * Copyright © 2016-2021 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,29 +22,36 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.authentication.DisabledException;
+import org.springframework.security.authentication.LockedException;
 import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.web.access.AccessDeniedHandler;
-import org.springframework.stereotype.Component;
-import org.thingsboard.server.common.data.EntityType;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 import org.thingsboard.server.common.data.exception.ThingsboardErrorCode;
 import org.thingsboard.server.common.data.exception.ThingsboardException;
 import org.thingsboard.server.common.msg.tools.TbRateLimitsException;
 import org.thingsboard.server.service.security.exception.AuthMethodNotSupportedException;
 import org.thingsboard.server.service.security.exception.JwtExpiredTokenException;
+import org.thingsboard.server.service.security.exception.UserPasswordExpiredException;
 
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 
-@Component
 @Slf4j
-public class ThingsboardErrorResponseHandler implements AccessDeniedHandler {
+@RestControllerAdvice
+public class ThingsboardErrorResponseHandler extends ResponseEntityExceptionHandler implements AccessDeniedHandler {
 
     @Autowired
     private ObjectMapper mapper;
 
     @Override
+    @ExceptionHandler(AccessDeniedException.class)
     public void handle(HttpServletRequest request, HttpServletResponse response,
                        AccessDeniedException accessDeniedException) throws IOException,
             ServletException {
@@ -57,6 +64,7 @@ public class ThingsboardErrorResponseHandler implements AccessDeniedHandler {
         }
     }
 
+    @ExceptionHandler(Exception.class)
     public void handle(Exception exception, HttpServletResponse response) {
         log.debug("Processing exception {}", exception.getMessage(), exception);
         if (!response.isCommitted()) {
@@ -64,7 +72,12 @@ public class ThingsboardErrorResponseHandler implements AccessDeniedHandler {
                 response.setContentType(MediaType.APPLICATION_JSON_VALUE);
 
                 if (exception instanceof ThingsboardException) {
-                    handleThingsboardException((ThingsboardException) exception, response);
+                    ThingsboardException thingsboardException = (ThingsboardException) exception;
+                    if (thingsboardException.getErrorCode() == ThingsboardErrorCode.SUBSCRIPTION_VIOLATION) {
+                        handleSubscriptionException((ThingsboardException) exception, response);
+                    } else {
+                        handleThingsboardException((ThingsboardException) exception, response);
+                    }
                 } else if (exception instanceof TbRateLimitsException) {
                     handleRateLimitException(response, (TbRateLimitsException) exception);
                 } else if (exception instanceof AccessDeniedException) {
@@ -124,6 +137,11 @@ public class ThingsboardErrorResponseHandler implements AccessDeniedHandler {
                         ThingsboardErrorCode.TOO_MANY_REQUESTS, HttpStatus.TOO_MANY_REQUESTS));
     }
 
+    private void handleSubscriptionException(ThingsboardException subscriptionException, HttpServletResponse response) throws IOException {
+        response.setStatus(HttpStatus.FORBIDDEN.value());
+        mapper.writeValue(response.getWriter(),
+                (new ObjectMapper()).readValue(((HttpClientErrorException) subscriptionException.getCause()).getResponseBodyAsByteArray(), Object.class));
+    }
 
     private void handleAccessDeniedException(HttpServletResponse response) throws IOException {
         response.setStatus(HttpStatus.FORBIDDEN.value());
@@ -135,14 +153,23 @@ public class ThingsboardErrorResponseHandler implements AccessDeniedHandler {
 
     private void handleAuthenticationException(AuthenticationException authenticationException, HttpServletResponse response) throws IOException {
         response.setStatus(HttpStatus.UNAUTHORIZED.value());
-        if (authenticationException instanceof BadCredentialsException) {
+        if (authenticationException instanceof BadCredentialsException || authenticationException instanceof UsernameNotFoundException) {
             mapper.writeValue(response.getWriter(), ThingsboardErrorResponse.of("Invalid username or password", ThingsboardErrorCode.AUTHENTICATION, HttpStatus.UNAUTHORIZED));
+        } else if (authenticationException instanceof DisabledException) {
+            mapper.writeValue(response.getWriter(), ThingsboardErrorResponse.of("User account is not active", ThingsboardErrorCode.AUTHENTICATION, HttpStatus.UNAUTHORIZED));
+        } else if (authenticationException instanceof LockedException) {
+            mapper.writeValue(response.getWriter(), ThingsboardErrorResponse.of("User account is locked due to security policy", ThingsboardErrorCode.AUTHENTICATION, HttpStatus.UNAUTHORIZED));
         } else if (authenticationException instanceof JwtExpiredTokenException) {
             mapper.writeValue(response.getWriter(), ThingsboardErrorResponse.of("Token has expired", ThingsboardErrorCode.JWT_TOKEN_EXPIRED, HttpStatus.UNAUTHORIZED));
         } else if (authenticationException instanceof AuthMethodNotSupportedException) {
             mapper.writeValue(response.getWriter(), ThingsboardErrorResponse.of(authenticationException.getMessage(), ThingsboardErrorCode.AUTHENTICATION, HttpStatus.UNAUTHORIZED));
+        } else if (authenticationException instanceof UserPasswordExpiredException) {
+            UserPasswordExpiredException expiredException = (UserPasswordExpiredException) authenticationException;
+            String resetToken = expiredException.getResetToken();
+            mapper.writeValue(response.getWriter(), ThingsboardCredentialsExpiredResponse.of(expiredException.getMessage(), resetToken));
+        } else {
+            mapper.writeValue(response.getWriter(), ThingsboardErrorResponse.of("Authentication failed", ThingsboardErrorCode.AUTHENTICATION, HttpStatus.UNAUTHORIZED));
         }
-        mapper.writeValue(response.getWriter(), ThingsboardErrorResponse.of("Authentication failed", ThingsboardErrorCode.AUTHENTICATION, HttpStatus.UNAUTHORIZED));
     }
 
 }
