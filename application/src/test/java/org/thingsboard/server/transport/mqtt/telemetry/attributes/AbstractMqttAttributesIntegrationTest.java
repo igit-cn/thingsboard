@@ -183,6 +183,7 @@ public abstract class AbstractMqttAttributesIntegrationTest extends AbstractMqtt
         }
     }
 
+    @SuppressWarnings({"unchecked", "rawtypes"})
     private void assertAttributesProtoValues(List<Map<String, Object>> values, Set<String> keySet) {
         for (Map<String, Object> map : values) {
             String key = (String) map.get("key");
@@ -191,15 +192,6 @@ public abstract class AbstractMqttAttributesIntegrationTest extends AbstractMqtt
             switch (key) {
                 case "key1":
                     assertEquals("", value);
-                    break;
-                case "key2":
-                    assertEquals(false, value);
-                    break;
-                case "key3":
-                    assertEquals(0.0, value);
-                    break;
-                case "key4":
-                    assertEquals(0, value);
                     break;
                 case "key5":
                     assertNotNull(value);

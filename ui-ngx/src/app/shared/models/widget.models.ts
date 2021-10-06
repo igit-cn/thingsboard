@@ -121,6 +121,7 @@ export interface WidgetActionSource {
   name: string;
   value: string;
   multiple: boolean;
+  hasShowCondition?: boolean;
 }
 
 export const widgetActionSources: {[acionSourceId: string]: WidgetActionSource} = {
@@ -129,6 +130,7 @@ export const widgetActionSources: {[acionSourceId: string]: WidgetActionSource} 
       name: 'widget-action.header-button',
       value: 'headerButton',
       multiple: true,
+      hasShowCondition: true
     }
 };
 
@@ -462,11 +464,14 @@ export interface WidgetActionDescriptor extends CustomActionDescriptor {
   setEntityId?: boolean;
   stateEntityParamName?: string;
   mobileAction?: WidgetMobileActionDescriptor;
+  useShowWidgetActionFunction?: boolean;
+  showWidgetActionFunction?: string;
 }
 
 export interface WidgetComparisonSettings {
   comparisonEnabled?: boolean;
   timeForComparison?: moment_.unitOfTime.DurationConstructor;
+  comparisonCustomIntervalValue?: number;
 }
 
 export interface WidgetConfig {

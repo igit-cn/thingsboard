@@ -69,7 +69,7 @@ public abstract class AbstractCoapAttributesIntegrationTest extends AbstractCoap
     }
 
     protected void processAttributesTest(List<String> expectedKeys, byte[] payload, boolean presenceFieldsTest) throws Exception {
-        CoapClient client = getCoapClient(FeatureType.ATTRIBUTES);
+        client = getCoapClient(FeatureType.ATTRIBUTES);
 
         postAttributes(client, payload);
 
@@ -114,8 +114,8 @@ public abstract class AbstractCoapAttributesIntegrationTest extends AbstractCoap
         assertEquals(CoAP.ResponseCode.CREATED, coapResponse.getCode());
     }
 
-    @SuppressWarnings("unchecked")
-    protected void assertAttributesValues(List<Map<String, Object>> deviceValues, Set<String> keySet) throws JsonProcessingException {
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    protected void assertAttributesValues(List<Map<String, Object>> deviceValues, Set<String> keySet) {
         for (Map<String, Object> map : deviceValues) {
             String key = (String) map.get("key");
             Object value = map.get("value");
@@ -145,6 +145,7 @@ public abstract class AbstractCoapAttributesIntegrationTest extends AbstractCoap
         }
     }
 
+    @SuppressWarnings({"unchecked", "rawtypes"})
     private void assertAttributesProtoValues(List<Map<String, Object>> values, Set<String> keySet) {
         for (Map<String, Object> map : values) {
             String key = (String) map.get("key");
@@ -153,15 +154,6 @@ public abstract class AbstractCoapAttributesIntegrationTest extends AbstractCoap
             switch (key) {
                 case "key1":
                     assertEquals("", value);
-                    break;
-                case "key2":
-                    assertEquals(false, value);
-                    break;
-                case "key3":
-                    assertEquals(0.0, value);
-                    break;
-                case "key4":
-                    assertEquals(0, value);
                     break;
                 case "key5":
                     assertNotNull(value);
