@@ -16,19 +16,33 @@
 package org.thingsboard.server.service.install;
 
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.collections.CollectionUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import org.thingsboard.server.common.data.EntitySubtype;
 import org.thingsboard.server.common.data.Tenant;
+import org.thingsboard.server.common.data.id.TenantId;
 import org.thingsboard.server.common.data.page.PageData;
 import org.thingsboard.server.common.data.page.PageLink;
+import org.thingsboard.server.common.data.queue.ProcessingStrategy;
+import org.thingsboard.server.common.data.queue.ProcessingStrategyType;
+import org.thingsboard.server.common.data.queue.Queue;
+import org.thingsboard.server.common.data.queue.SubmitStrategy;
+import org.thingsboard.server.common.data.queue.SubmitStrategyType;
+import org.thingsboard.server.dao.asset.AssetProfileService;
+import org.thingsboard.server.dao.asset.AssetService;
 import org.thingsboard.server.dao.dashboard.DashboardService;
 import org.thingsboard.server.dao.device.DeviceProfileService;
 import org.thingsboard.server.dao.device.DeviceService;
+import org.thingsboard.server.dao.queue.QueueService;
+import org.thingsboard.server.dao.rule.RuleChainService;
+import org.thingsboard.server.dao.tenant.TenantProfileService;
 import org.thingsboard.server.dao.tenant.TenantService;
 import org.thingsboard.server.dao.usagerecord.ApiUsageStateService;
+import org.thingsboard.server.queue.settings.TbRuleEngineQueueConfiguration;
 import org.thingsboard.server.service.install.sql.SqlDbHelper;
 
 import java.nio.charset.Charset;
@@ -96,11 +110,29 @@ public class SqlDatabaseUpgradeService implements DatabaseEntitiesUpgradeService
     private DeviceService deviceService;
 
     @Autowired
+    private AssetService assetService;
+
+    @Autowired
     private DeviceProfileService deviceProfileService;
+
+    @Autowired
+    private AssetProfileService assetProfileService;
 
     @Autowired
     private ApiUsageStateService apiUsageStateService;
 
+    @Lazy
+    @Autowired
+    private QueueService queueService;
+
+    @Autowired
+    private TbRuleEngineQueueConfigService queueConfig;
+
+    @Autowired
+    private RuleChainService ruleChainService;
+
+    @Autowired
+    private TenantProfileService tenantProfileService;
 
     @Override
     public void upgradeDatabase(String fromVersion) throws Exception {
@@ -534,9 +566,102 @@ public class SqlDatabaseUpgradeService implements DatabaseEntitiesUpgradeService
                     log.error("Failed updating schema!!!", e);
                 }
                 break;
+            case "3.3.4":
+                try (Connection conn = DriverManager.getConnection(dbUrl, dbUserName, dbPassword)) {
+                    log.info("Updating schema ...");
+                    schemaUpdateFile = Paths.get(installScripts.getDataDir(), "upgrade", "3.3.4", SCHEMA_UPDATE_SQL);
+                    loadSql(schemaUpdateFile, conn);
+
+                    log.info("Loading queues...");
+                    try {
+                        if (!CollectionUtils.isEmpty(queueConfig.getQueues())) {
+                            queueConfig.getQueues().forEach(queueSettings -> {
+                                Queue queue = queueConfigToQueue(queueSettings);
+                                Queue existing = queueService.findQueueByTenantIdAndName(queue.getTenantId(), queue.getName());
+                                if (existing == null) {
+                                    queueService.saveQueue(queue);
+                                }
+                            });
+                        } else {
+                            systemDataLoaderService.createQueues();
+                        }
+                    } catch (Exception e) {
+                    }
+
+                    log.info("Updating schema settings...");
+                    conn.createStatement().execute("UPDATE tb_schema_settings SET schema_version = 3004000;");
+                    log.info("Schema updated.");
+                } catch (Exception e) {
+                    log.error("Failed updating schema!!!", e);
+                }
+                break;
+            case "3.4.0":
+                try (Connection conn = DriverManager.getConnection(dbUrl, dbUserName, dbPassword)) {
+                    log.info("Updating schema ...");
+                    schemaUpdateFile = Paths.get(installScripts.getDataDir(), "upgrade", "3.4.0", SCHEMA_UPDATE_SQL);
+                    loadSql(schemaUpdateFile, conn);
+                    log.info("Updating schema settings...");
+                    conn.createStatement().execute("UPDATE tb_schema_settings SET schema_version = 3004001;");
+                    log.info("Schema updated.");
+                } catch (Exception e) {
+                    log.error("Failed updating schema!!!", e);
+                }
+                break;
+            case "3.4.1":
+                try (Connection conn = DriverManager.getConnection(dbUrl, dbUserName, dbPassword)) {
+                    log.info("Updating schema ...");
+                    runSchemaUpdateScript(conn, "3.4.1");
+                    if (isOldSchema(conn, 3004001)) {
+                        try {
+                            conn.createStatement().execute("ALTER TABLE asset ADD COLUMN asset_profile_id uuid");
+                        } catch (Exception e) {
+                        }
+
+                        schemaUpdateFile = Paths.get(installScripts.getDataDir(), "upgrade", "3.4.1", "schema_update_before.sql");
+                        loadSql(schemaUpdateFile, conn);
+
+                        log.info("Creating default asset profiles...");
+                        PageLink pageLink = new PageLink(100);
+                        PageData<Tenant> pageData;
+                        do {
+                            pageData = tenantService.findTenants(pageLink);
+                            for (Tenant tenant : pageData.getData()) {
+                                List<EntitySubtype> assetTypes = assetService.findAssetTypesByTenantId(tenant.getId()).get();
+                                try {
+                                    assetProfileService.createDefaultAssetProfile(tenant.getId());
+                                } catch (Exception e) {
+                                }
+                                for (EntitySubtype assetType : assetTypes) {
+                                    try {
+                                        assetProfileService.findOrCreateAssetProfile(tenant.getId(), assetType.getType());
+                                    } catch (Exception e) {
+                                    }
+                                }
+                            }
+                            pageLink = pageLink.nextPageLink();
+                        } while (pageData.hasNext());
+
+                        log.info("Updating asset profiles...");
+                        conn.createStatement().execute("call update_asset_profiles()");
+
+                        schemaUpdateFile = Paths.get(installScripts.getDataDir(), "upgrade", "3.4.1", "schema_update_after.sql");
+                        loadSql(schemaUpdateFile, conn);
+
+                        conn.createStatement().execute("UPDATE tb_schema_settings SET schema_version = 3004002;");
+                    }
+                    log.info("Schema updated.");
+                } catch (Exception e) {
+                    log.error("Failed updating schema!!!", e);
+                }
+                break;
             default:
                 throw new RuntimeException("Unable to upgrade SQL database, unsupported fromVersion: " + fromVersion);
         }
+    }
+
+    private void runSchemaUpdateScript(Connection connection, String version) throws Exception {
+        Path schemaUpdateFile = Paths.get(installScripts.getDataDir(), "upgrade", version, SCHEMA_UPDATE_SQL);
+        loadSql(schemaUpdateFile, connection);
     }
 
     private void loadSql(Path sqlFile, Connection conn) throws Exception {
@@ -579,4 +704,29 @@ public class SqlDatabaseUpgradeService implements DatabaseEntitiesUpgradeService
         }
         return isOldSchema;
     }
+
+    private Queue queueConfigToQueue(TbRuleEngineQueueConfiguration queueSettings) {
+        Queue queue = new Queue();
+        queue.setTenantId(TenantId.SYS_TENANT_ID);
+        queue.setName(queueSettings.getName());
+        queue.setTopic(queueSettings.getTopic());
+        queue.setPollInterval(queueSettings.getPollInterval());
+        queue.setPartitions(queueSettings.getPartitions());
+        queue.setPackProcessingTimeout(queueSettings.getPackProcessingTimeout());
+        SubmitStrategy submitStrategy = new SubmitStrategy();
+        submitStrategy.setBatchSize(queueSettings.getSubmitStrategy().getBatchSize());
+        submitStrategy.setType(SubmitStrategyType.valueOf(queueSettings.getSubmitStrategy().getType()));
+        queue.setSubmitStrategy(submitStrategy);
+        ProcessingStrategy processingStrategy = new ProcessingStrategy();
+        processingStrategy.setType(ProcessingStrategyType.valueOf(queueSettings.getProcessingStrategy().getType()));
+        processingStrategy.setRetries(queueSettings.getProcessingStrategy().getRetries());
+        processingStrategy.setFailurePercentage(queueSettings.getProcessingStrategy().getFailurePercentage());
+        processingStrategy.setPauseBetweenRetries(queueSettings.getProcessingStrategy().getPauseBetweenRetries());
+        processingStrategy.setMaxPauseBetweenRetries(queueSettings.getProcessingStrategy().getMaxPauseBetweenRetries());
+        queue.setProcessingStrategy(processingStrategy);
+        queue.setConsumerPerPartition(queueSettings.isConsumerPerPartition());
+        return queue;
+    }
+
+
 }

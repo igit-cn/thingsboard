@@ -20,6 +20,7 @@ public enum EdgeEventType {
     ASSET,
     DEVICE,
     DEVICE_PROFILE,
+    ASSET_PROFILE,
     ENTITY_VIEW,
     ALARM,
     RULE_CHAIN,
@@ -31,5 +32,7 @@ public enum EdgeEventType {
     TENANT,
     WIDGETS_BUNDLE,
     WIDGET_TYPE,
-    ADMIN_SETTINGS
+    ADMIN_SETTINGS,
+    OTA_PACKAGE,
+    QUEUE
 }

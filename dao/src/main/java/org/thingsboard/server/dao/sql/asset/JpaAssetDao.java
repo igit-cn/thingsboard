@@ -15,30 +15,25 @@
  */
 package org.thingsboard.server.dao.sql.asset;
 
-import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
-import com.google.common.util.concurrent.MoreExecutors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.repository.CrudRepository;
+import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Component;
 import org.thingsboard.server.common.data.EntitySubtype;
 import org.thingsboard.server.common.data.EntityType;
 import org.thingsboard.server.common.data.asset.Asset;
 import org.thingsboard.server.common.data.asset.AssetInfo;
-import org.thingsboard.server.common.data.id.EdgeId;
+import org.thingsboard.server.common.data.id.AssetId;
 import org.thingsboard.server.common.data.id.TenantId;
 import org.thingsboard.server.common.data.page.PageData;
 import org.thingsboard.server.common.data.page.PageLink;
-import org.thingsboard.server.common.data.page.TimePageLink;
-import org.thingsboard.server.common.data.relation.EntityRelation;
-import org.thingsboard.server.common.data.relation.RelationTypeGroup;
 import org.thingsboard.server.dao.DaoUtil;
 import org.thingsboard.server.dao.asset.AssetDao;
 import org.thingsboard.server.dao.model.sql.AssetEntity;
 import org.thingsboard.server.dao.model.sql.AssetInfoEntity;
-import org.thingsboard.server.dao.relation.RelationDao;
 import org.thingsboard.server.dao.sql.JpaAbstractSearchTextDao;
+import org.thingsboard.server.dao.util.SqlDao;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -53,6 +48,7 @@ import static org.thingsboard.server.dao.asset.BaseAssetService.TB_SERVICE_QUEUE
  * Created by Valerii Sosliuk on 5/19/2017.
  */
 @Component
+@SqlDao
 @Slf4j
 public class JpaAssetDao extends JpaAbstractSearchTextDao<AssetEntity, Asset> implements AssetDao {
 
@@ -65,7 +61,7 @@ public class JpaAssetDao extends JpaAbstractSearchTextDao<AssetEntity, Asset> im
     }
 
     @Override
-    protected CrudRepository<AssetEntity, UUID> getCrudRepository() {
+    protected JpaRepository<AssetEntity, UUID> getRepository() {
         return assetRepository;
     }
 
@@ -151,6 +147,16 @@ public class JpaAssetDao extends JpaAbstractSearchTextDao<AssetEntity, Asset> im
     }
 
     @Override
+    public PageData<AssetInfo> findAssetInfosByTenantIdAndAssetProfileId(UUID tenantId, UUID assetProfileId, PageLink pageLink) {
+        return DaoUtil.toPageData(
+                assetRepository.findAssetInfosByTenantIdAndAssetProfileId(
+                        tenantId,
+                        assetProfileId,
+                        Objects.toString(pageLink.getTextSearch(), ""),
+                        DaoUtil.toPageable(pageLink, AssetInfoEntity.assetInfoColumnMap)));
+    }
+
+    @Override
     public PageData<Asset> findAssetsByTenantIdAndCustomerIdAndType(UUID tenantId, UUID customerId, String type, PageLink pageLink) {
         return DaoUtil.toPageData(assetRepository
                 .findByTenantIdAndCustomerIdAndType(
@@ -173,8 +179,34 @@ public class JpaAssetDao extends JpaAbstractSearchTextDao<AssetEntity, Asset> im
     }
 
     @Override
+    public PageData<AssetInfo> findAssetInfosByTenantIdAndCustomerIdAndAssetProfileId(UUID tenantId, UUID customerId, UUID assetProfileId, PageLink pageLink) {
+        return DaoUtil.toPageData(
+                assetRepository.findAssetInfosByTenantIdAndCustomerIdAndAssetProfileId(
+                        tenantId,
+                        customerId,
+                        assetProfileId,
+                        Objects.toString(pageLink.getTextSearch(), ""),
+                        DaoUtil.toPageable(pageLink, AssetInfoEntity.assetInfoColumnMap)));
+    }
+
+    @Override
     public ListenableFuture<List<EntitySubtype>> findTenantAssetTypesAsync(UUID tenantId) {
         return service.submit(() -> convertTenantAssetTypesToDto(tenantId, assetRepository.findTenantAssetTypes(tenantId)));
+    }
+
+    @Override
+    public Long countAssetsByAssetProfileId(TenantId tenantId, UUID assetProfileId) {
+        return assetRepository.countByAssetProfileId(assetProfileId);
+    }
+
+    @Override
+    public PageData<Asset> findAssetsByTenantIdAndProfileId(UUID tenantId, UUID profileId, PageLink pageLink) {
+        return DaoUtil.toPageData(
+                assetRepository.findByTenantIdAndProfileId(
+                        tenantId,
+                        profileId,
+                        Objects.toString(pageLink.getTextSearch(), ""),
+                        DaoUtil.toPageable(pageLink)));
     }
 
     private List<EntitySubtype> convertTenantAssetTypesToDto(UUID tenantId, List<String> types) {
@@ -215,4 +247,31 @@ public class JpaAssetDao extends JpaAbstractSearchTextDao<AssetEntity, Asset> im
     public Long countByTenantId(TenantId tenantId) {
         return assetRepository.countByTenantIdAndTypeIsNot(tenantId.getId(), TB_SERVICE_QUEUE);
     }
+
+    @Override
+    public Asset findByTenantIdAndExternalId(UUID tenantId, UUID externalId) {
+        return DaoUtil.getData(assetRepository.findByTenantIdAndExternalId(tenantId, externalId));
+    }
+
+    @Override
+    public Asset findByTenantIdAndName(UUID tenantId, String name) {
+        return findAssetsByTenantIdAndName(tenantId, name).orElse(null);
+    }
+
+    @Override
+    public PageData<Asset> findByTenantId(UUID tenantId, PageLink pageLink) {
+        return findAssetsByTenantId(tenantId, pageLink);
+    }
+
+    @Override
+    public AssetId getExternalIdByInternal(AssetId internalId) {
+        return Optional.ofNullable(assetRepository.getExternalIdById(internalId.getId()))
+                .map(AssetId::new).orElse(null);
+    }
+
+    @Override
+    public EntityType getEntityType() {
+        return EntityType.ASSET;
+    }
+
 }

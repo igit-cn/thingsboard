@@ -28,6 +28,7 @@ import org.thingsboard.edge.rpc.EdgeGrpcClient;
 import org.thingsboard.edge.rpc.EdgeRpcClient;
 import org.thingsboard.server.gen.edge.v1.AdminSettingsUpdateMsg;
 import org.thingsboard.server.gen.edge.v1.AlarmUpdateMsg;
+import org.thingsboard.server.gen.edge.v1.AssetProfileUpdateMsg;
 import org.thingsboard.server.gen.edge.v1.AssetUpdateMsg;
 import org.thingsboard.server.gen.edge.v1.CustomerUpdateMsg;
 import org.thingsboard.server.gen.edge.v1.DashboardUpdateMsg;
@@ -41,6 +42,8 @@ import org.thingsboard.server.gen.edge.v1.DownlinkResponseMsg;
 import org.thingsboard.server.gen.edge.v1.EdgeConfiguration;
 import org.thingsboard.server.gen.edge.v1.EntityDataProto;
 import org.thingsboard.server.gen.edge.v1.EntityViewUpdateMsg;
+import org.thingsboard.server.gen.edge.v1.OtaPackageUpdateMsg;
+import org.thingsboard.server.gen.edge.v1.QueueUpdateMsg;
 import org.thingsboard.server.gen.edge.v1.RelationUpdateMsg;
 import org.thingsboard.server.gen.edge.v1.RuleChainMetadataUpdateMsg;
 import org.thingsboard.server.gen.edge.v1.RuleChainUpdateMsg;
@@ -194,6 +197,11 @@ public class EdgeImitator {
                 result.add(saveDownlinkMsg(deviceCredentialsUpdateMsg));
             }
         }
+        if (downlinkMsg.getAssetProfileUpdateMsgCount() > 0) {
+            for (AssetProfileUpdateMsg assetProfileUpdateMsg : downlinkMsg.getAssetProfileUpdateMsgList()) {
+                result.add(saveDownlinkMsg(assetProfileUpdateMsg));
+            }
+        }
         if (downlinkMsg.getAssetUpdateMsgCount() > 0) {
             for (AssetUpdateMsg assetUpdateMsg : downlinkMsg.getAssetUpdateMsgList()) {
                 result.add(saveDownlinkMsg(assetUpdateMsg));
@@ -275,6 +283,16 @@ public class EdgeImitator {
         if (downlinkMsg.getDeviceCredentialsRequestMsgCount() > 0) {
             for (DeviceCredentialsRequestMsg deviceCredentialsRequestMsg : downlinkMsg.getDeviceCredentialsRequestMsgList()) {
                 result.add(saveDownlinkMsg(deviceCredentialsRequestMsg));
+            }
+        }
+        if (downlinkMsg.getOtaPackageUpdateMsgCount() > 0) {
+            for (OtaPackageUpdateMsg otaPackageUpdateMsg : downlinkMsg.getOtaPackageUpdateMsgList()) {
+                result.add(saveDownlinkMsg(otaPackageUpdateMsg));
+            }
+        }
+        if (downlinkMsg.getQueueUpdateMsgCount() > 0) {
+            for (QueueUpdateMsg queueUpdateMsg : downlinkMsg.getQueueUpdateMsgList()) {
+                result.add(saveDownlinkMsg(queueUpdateMsg));
             }
         }
         return Futures.allAsList(result);

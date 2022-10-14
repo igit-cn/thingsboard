@@ -16,7 +16,6 @@
 package org.thingsboard.server.service.edge.rpc;
 
 import com.datastax.oss.driver.api.core.uuid.Uuids;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -39,6 +38,7 @@ import org.thingsboard.server.common.data.kv.LongDataEntry;
 import org.thingsboard.server.common.data.page.PageData;
 import org.thingsboard.server.common.data.page.PageLink;
 import org.thingsboard.server.gen.edge.v1.AlarmUpdateMsg;
+import org.thingsboard.server.gen.edge.v1.AssetProfileAssetsRequestMsg;
 import org.thingsboard.server.gen.edge.v1.AttributesRequestMsg;
 import org.thingsboard.server.gen.edge.v1.ConnectRequestMsg;
 import org.thingsboard.server.gen.edge.v1.ConnectResponseCode;
@@ -96,7 +96,6 @@ public final class EdgeGrpcSession implements Closeable {
     private final UUID sessionId;
     private final BiConsumer<EdgeId, EdgeGrpcSession> sessionOpenListener;
     private final Consumer<EdgeId> sessionCloseListener;
-    private final ObjectMapper mapper;
 
     private final EdgeSessionState sessionState = new EdgeSessionState();
 
@@ -112,13 +111,12 @@ public final class EdgeGrpcSession implements Closeable {
     private ScheduledExecutorService sendDownlinkExecutorService;
 
     EdgeGrpcSession(EdgeContextComponent ctx, StreamObserver<ResponseMsg> outputStream, BiConsumer<EdgeId, EdgeGrpcSession> sessionOpenListener,
-                    Consumer<EdgeId> sessionCloseListener, ObjectMapper mapper, ScheduledExecutorService sendDownlinkExecutorService) {
+                    Consumer<EdgeId> sessionCloseListener, ScheduledExecutorService sendDownlinkExecutorService) {
         this.sessionId = UUID.randomUUID();
         this.ctx = ctx;
         this.outputStream = outputStream;
         this.sessionOpenListener = sessionOpenListener;
         this.sessionCloseListener = sessionCloseListener;
-        this.mapper = mapper;
         this.sendDownlinkExecutorService = sendDownlinkExecutorService;
         initInputStream();
     }
@@ -214,6 +212,7 @@ public final class EdgeGrpcSession implements Closeable {
                 @Override
                 public void onSuccess(Void result) {
                     syncCompleted = true;
+                    ctx.getClusterService().onEdgeEventUpdate(edge.getTenantId(), edge.getId());
                 }
 
                 @Override
@@ -312,10 +311,10 @@ public final class EdgeGrpcSession implements Closeable {
                 public void onSuccess(@Nullable UUID ifOffset) {
                     if (ifOffset != null) {
                         Long newStartTs = Uuids.unixTimestamp(ifOffset);
-                        ListenableFuture<List<Void>> updateFuture = updateQueueStartTs(newStartTs);
+                        ListenableFuture<List<String>> updateFuture = updateQueueStartTs(newStartTs);
                         Futures.addCallback(updateFuture, new FutureCallback<>() {
                             @Override
-                            public void onSuccess(@Nullable List<Void> list) {
+                            public void onSuccess(@Nullable List<String> list) {
                                 log.debug("[{}] queue offset was updated [{}][{}]", sessionId, ifOffset, newStartTs);
                                 result.set(null);
                             }
@@ -402,11 +401,11 @@ public final class EdgeGrpcSession implements Closeable {
         Runnable sendDownlinkMsgsTask = () -> {
             try {
                 if (isConnected() && sessionState.getPendingMsgsMap().values().size() > 0) {
-                    if (!firstRun) {
-                        log.warn("[{}] Failed to deliver the batch: {}", this.sessionId, sessionState.getPendingMsgsMap().values());
-                    }
-                    log.trace("[{}] [{}] downlink msg(s) are going to be send.", this.sessionId, sessionState.getPendingMsgsMap().values().size());
                     List<DownlinkMsg> copy = new ArrayList<>(sessionState.getPendingMsgsMap().values());
+                    if (!firstRun) {
+                        log.warn("[{}] Failed to deliver the batch: {}", this.sessionId, copy);
+                    }
+                    log.trace("[{}] [{}] downlink msg(s) are going to be send.", this.sessionId, copy.size());
                     for (DownlinkMsg downlinkMsg : copy) {
                         sendDownlinkMsg(ResponseMsg.newBuilder()
                                 .setDownlinkMsg(downlinkMsg)
@@ -499,7 +498,7 @@ public final class EdgeGrpcSession implements Closeable {
         }, ctx.getGrpcCallbackExecutorService());
     }
 
-    private ListenableFuture<List<Void>> updateQueueStartTs(Long newStartTs) {
+    private ListenableFuture<List<String>> updateQueueStartTs(Long newStartTs) {
         log.trace("[{}] updating QueueStartTs [{}][{}]", this.sessionId, edge.getId(), newStartTs);
         List<AttributeKvEntry> attributes = Collections.singletonList(
                 new BaseAttributeKvEntry(
@@ -515,6 +514,8 @@ public final class EdgeGrpcSession implements Closeable {
                 return ctx.getDeviceProcessor().processDeviceToEdge(edge, edgeEvent, msgType, action);
             case DEVICE_PROFILE:
                 return ctx.getDeviceProfileProcessor().processDeviceProfileToEdge(edgeEvent, msgType, action);
+            case ASSET_PROFILE:
+                return ctx.getAssetProfileProcessor().processAssetProfileToEdge(edgeEvent, msgType, action);
             case ASSET:
                 return ctx.getAssetProcessor().processAssetToEdge(edge, edgeEvent, msgType, action);
             case ENTITY_VIEW:
@@ -539,6 +540,10 @@ public final class EdgeGrpcSession implements Closeable {
                 return ctx.getWidgetTypeProcessor().processWidgetTypeToEdge(edgeEvent, msgType, action);
             case ADMIN_SETTINGS:
                 return ctx.getAdminSettingsProcessor().processAdminSettingsToEdge(edgeEvent);
+            case OTA_PACKAGE:
+                return ctx.getOtaPackageEdgeProcessor().processOtaPackageToEdge(edgeEvent, msgType, action);
+            case QUEUE:
+                return ctx.getQueueEdgeProcessor().processQueueToEdge(edgeEvent, msgType, action);
             default:
                 log.warn("Unsupported edge event type [{}]", edgeEvent);
                 return null;
@@ -630,6 +635,11 @@ public final class EdgeGrpcSession implements Closeable {
             if (uplinkMsg.getDeviceProfileDevicesRequestMsgCount() > 0) {
                 for (DeviceProfileDevicesRequestMsg deviceProfileDevicesRequestMsg : uplinkMsg.getDeviceProfileDevicesRequestMsgList()) {
                     result.add(ctx.getEdgeRequestsService().processDeviceProfileDevicesRequestMsg(edge.getTenantId(), edge, deviceProfileDevicesRequestMsg));
+                }
+            }
+            if (uplinkMsg.getAssetProfileAssetsRequestMsgCount() > 0) {
+                for (AssetProfileAssetsRequestMsg assetProfileAssetsRequestMsg : uplinkMsg.getAssetProfileAssetsRequestMsgList()) {
+                    result.add(ctx.getEdgeRequestsService().processAssetProfileAssetsRequestMsg(edge.getTenantId(), edge, assetProfileAssetsRequestMsg));
                 }
             }
             if (uplinkMsg.getWidgetBundleTypesRequestMsgCount() > 0) {

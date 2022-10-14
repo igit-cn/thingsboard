@@ -19,11 +19,12 @@ import com.google.common.util.concurrent.ListenableFuture;
 import org.thingsboard.server.common.data.EntitySubtype;
 import org.thingsboard.server.common.data.asset.Asset;
 import org.thingsboard.server.common.data.asset.AssetInfo;
+import org.thingsboard.server.common.data.id.AssetId;
 import org.thingsboard.server.common.data.id.TenantId;
 import org.thingsboard.server.common.data.page.PageData;
 import org.thingsboard.server.common.data.page.PageLink;
-import org.thingsboard.server.common.data.page.TimePageLink;
 import org.thingsboard.server.dao.Dao;
+import org.thingsboard.server.dao.ExportableEntityDao;
 import org.thingsboard.server.dao.TenantEntityDao;
 
 import java.util.List;
@@ -34,7 +35,7 @@ import java.util.UUID;
  * The Interface AssetDao.
  *
  */
-public interface AssetDao extends Dao<Asset>, TenantEntityDao {
+public interface AssetDao extends Dao<Asset>, TenantEntityDao, ExportableEntityDao<AssetId, Asset> {
 
     /**
      * Find asset info by id.
@@ -92,6 +93,16 @@ public interface AssetDao extends Dao<Asset>, TenantEntityDao {
     PageData<AssetInfo> findAssetInfosByTenantIdAndType(UUID tenantId, String type, PageLink pageLink);
 
     /**
+     * Find asset infos by tenantId, assetProfileId and page link.
+     *
+     * @param tenantId the tenantId
+     * @param assetProfileId the assetProfileId
+     * @param pageLink the page link
+     * @return the list of asset info objects
+     */
+    PageData<AssetInfo> findAssetInfosByTenantIdAndAssetProfileId(UUID tenantId, UUID assetProfileId, PageLink pageLink);
+
+    /**
      * Find assets by tenantId and assets Ids.
      *
      * @param tenantId the tenantId
@@ -143,6 +154,17 @@ public interface AssetDao extends Dao<Asset>, TenantEntityDao {
     PageData<AssetInfo> findAssetInfosByTenantIdAndCustomerIdAndType(UUID tenantId, UUID customerId, String type, PageLink pageLink);
 
     /**
+     * Find asset infos by tenantId, customerId, assetProfileId and page link.
+     *
+     * @param tenantId the tenantId
+     * @param customerId the customerId
+     * @param assetProfileId the assetProfileId
+     * @param pageLink the page link
+     * @return the list of asset info objects
+     */
+    PageData<AssetInfo> findAssetInfosByTenantIdAndCustomerIdAndAssetProfileId(UUID tenantId, UUID customerId, UUID assetProfileId, PageLink pageLink);
+
+    /**
      * Find assets by tenantId, customerId and assets Ids.
      *
      * @param tenantId the tenantId
@@ -167,6 +189,18 @@ public interface AssetDao extends Dao<Asset>, TenantEntityDao {
      * @return the list of tenant asset type objects
      */
     ListenableFuture<List<EntitySubtype>> findTenantAssetTypesAsync(UUID tenantId);
+
+    Long countAssetsByAssetProfileId(TenantId tenantId, UUID assetProfileId);
+
+    /**
+     * Find assets by tenantId, profileId and page link.
+     *
+     * @param tenantId the tenantId
+     * @param profileId the profileId
+     * @param pageLink the page link
+     * @return the list of device objects
+     */
+    PageData<Asset> findAssetsByTenantIdAndProfileId(UUID tenantId, UUID profileId, PageLink pageLink);
 
     /**
      * Find assets by tenantId, edgeId and page link.

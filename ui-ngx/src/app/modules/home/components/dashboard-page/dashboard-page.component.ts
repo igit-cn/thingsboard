@@ -17,13 +17,18 @@
 import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
-  Component, ElementRef, HostBinding,
+  Component,
+  ElementRef,
+  EventEmitter,
+  HostBinding,
   Inject,
   Injector,
   Input,
   NgZone,
   OnDestroy,
-  OnInit, Optional,
+  OnInit,
+  Optional,
+  Renderer2,
   StaticProvider,
   ViewChild,
   ViewContainerRef,
@@ -48,7 +53,7 @@ import {
 } from '@app/shared/models/dashboard.models';
 import { WINDOW } from '@core/services/window.service';
 import { WindowMessage } from '@shared/models/window-message.model';
-import { deepClone, guid, hashCode, isDefined, isDefinedAndNotNull, isNotEmptyStr } from '@app/core/utils';
+import { deepClone, guid, isDefined, isDefinedAndNotNull, isNotEmptyStr } from '@app/core/utils';
 import {
   DashboardContext,
   DashboardPageLayout,
@@ -129,12 +134,18 @@ import { MobileService } from '@core/services/mobile.service';
 
 import {
   DashboardImageDialogComponent,
-  DashboardImageDialogData, DashboardImageDialogResult
+  DashboardImageDialogData,
+  DashboardImageDialogResult
 } from '@home/components/dashboard-page/dashboard-image-dialog.component';
 import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
 import cssjs from '@core/css/css';
 import { DOCUMENT } from '@angular/common';
 import { IAliasController } from '@core/api/widget-api.models';
+import { MatButton } from '@angular/material/button';
+import { VersionControlComponent } from '@home/components/vc/version-control.component';
+import { TbPopoverService } from '@shared/components/popover.service';
+import { tap } from 'rxjs/operators';
+import { TbPopoverComponent } from '@shared/components/popover.component';
 
 // @dynamic
 @Component({
@@ -179,6 +190,9 @@ export class DashboardPageComponent extends PageComponent implements IDashboardC
 
   @Input()
   parentDashboard?: IDashboardComponent = null;
+
+  @Input()
+  popoverComponent?: TbPopoverComponent = null;
 
   @Input()
   parentAliasController?: IAliasController = null;
@@ -290,6 +304,8 @@ export class DashboardPageComponent extends PageComponent implements IDashboardC
     ]
   };
 
+  updateBreadcrumbs = new EventEmitter();
+
   private rxSubscriptions = new Array<Subscription>();
 
   get toolbarOpened(): boolean {
@@ -329,6 +345,8 @@ export class DashboardPageComponent extends PageComponent implements IDashboardC
               private fb: FormBuilder,
               private dialog: MatDialog,
               private translate: TranslateService,
+              private popoverService: TbPopoverService,
+              private renderer: Renderer2,
               private ngZone: NgZone,
               @Optional() @Inject('embeddedValue') private embeddedValue,
               private overlay: Overlay,
@@ -1054,7 +1072,7 @@ export class DashboardPageComponent extends PageComponent implements IDashboardC
             dataKeys: config.alarmSource.dataKeys || []
           };
         }
-        const newWidget: Widget = {
+        let newWidget: Widget = {
           isSystemType: widget.isSystemType,
           bundleAlias: widget.bundleAlias,
           typeAlias: widgetTypeInfo.alias,
@@ -1068,6 +1086,7 @@ export class DashboardPageComponent extends PageComponent implements IDashboardC
           row: 0,
           col: 0
         };
+        newWidget = this.dashboardUtils.validateAndUpdateWidget(newWidget);
         if (widgetTypeInfo.typeParameters.useCustomDatasources) {
           this.addWidgetToDashboard(newWidget);
         } else {
@@ -1127,6 +1146,13 @@ export class DashboardPageComponent extends PageComponent implements IDashboardC
 
   editWidget($event: Event, layoutCtx: DashboardPageLayoutContext, widget: Widget) {
     $event.stopPropagation();
+
+    if (this.isAddingWidget) {
+      this.onAddWidgetClosed();
+      this.isAddingWidgetClosed = true;
+      this.isEditingWidgetClosed = false;
+    }
+
     if (this.editingWidgetOriginal === widget) {
       this.onEditWidgetClosed();
     } else {
@@ -1391,5 +1417,53 @@ export class DashboardPageComponent extends PageComponent implements IDashboardC
         this.dashboard.image = result.image;
       }
     });
+  }
+
+  toggleVersionControl($event: Event, versionControlButton: MatButton) {
+    if ($event) {
+      $event.stopPropagation();
+    }
+    const trigger = versionControlButton._elementRef.nativeElement;
+    if (this.popoverService.hasPopover(trigger)) {
+      this.popoverService.hidePopover(trigger);
+    } else {
+      const versionControlPopover = this.popoverService.displayPopover(trigger, this.renderer,
+        this.viewContainerRef, VersionControlComponent, 'leftTop', true, null,
+        {
+          detailsMode: true,
+          active: true,
+          singleEntityMode: true,
+          externalEntityId: this.dashboard.externalId || this.dashboard.id,
+          entityId: this.dashboard.id,
+          entityName: this.dashboard.name,
+          onBeforeCreateVersion: () => {
+            return this.dashboardService.saveDashboard(this.dashboard).pipe(
+              tap((dashboard) => {
+                this.dashboard = this.dashboardUtils.validateAndUpdateDashboard(dashboard);
+                this.prevDashboard = deepClone(this.dashboard);
+              })
+            );
+          }
+        }, {}, {}, {}, true);
+      versionControlPopover.tbComponentRef.instance.popoverComponent = versionControlPopover;
+      versionControlPopover.tbComponentRef.instance.versionRestored.subscribe(() => {
+        this.dashboardService.getDashboard(this.currentDashboardId).subscribe((dashboard) => {
+          dashboard = this.dashboardUtils.validateAndUpdateDashboard(dashboard);
+          const data = {
+            dashboard,
+            widgetEditMode: false,
+            currentDashboardId: this.currentDashboardId
+          } as any;
+          this.init(data);
+          this.dashboardCtx.stateController.cleanupPreservedStates();
+          this.dashboardCtx.stateController.resetState();
+          this.setEditMode(true, false);
+          this.updateBreadcrumbs.emit();
+          this.ngZone.run(() => {
+            this.cd.detectChanges();
+          });
+        });
+      });
+    }
   }
 }

@@ -36,11 +36,14 @@ public enum Resource {
     OAUTH2_CONFIGURATION_TEMPLATE(),
     TENANT_PROFILE(EntityType.TENANT_PROFILE),
     DEVICE_PROFILE(EntityType.DEVICE_PROFILE),
+    ASSET_PROFILE(EntityType.ASSET_PROFILE),
     API_USAGE_STATE(EntityType.API_USAGE_STATE),
     TB_RESOURCE(EntityType.TB_RESOURCE),
     OTA_PACKAGE(EntityType.OTA_PACKAGE),
     EDGE(EntityType.EDGE),
-    RPC(EntityType.RPC);
+    RPC(EntityType.RPC),
+    QUEUE(EntityType.QUEUE),
+    VERSION_CONTROL;
 
     private final EntityType entityType;
 

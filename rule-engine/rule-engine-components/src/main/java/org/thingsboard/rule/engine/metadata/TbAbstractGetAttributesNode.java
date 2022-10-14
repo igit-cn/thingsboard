@@ -15,7 +15,6 @@
  */
 package org.thingsboard.rule.engine.metadata;
 
-import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.json.JsonWriteFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -78,10 +77,6 @@ public abstract class TbAbstractGetAttributesNode<C extends TbGetAttributesNodeC
         } catch (Throwable th) {
             ctx.tellFailure(msg, th);
         }
-    }
-
-    @Override
-    public void destroy() {
     }
 
     protected abstract ListenableFuture<T> findEntityIdAsync(TbContext ctx, TbMsg msg);
